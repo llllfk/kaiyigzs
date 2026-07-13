@@ -19,7 +19,9 @@
 │   └── start.sh            # 生产环境启动脚本
 ├── src/
 │   ├── app/                # 页面路由与布局
+│   ├── components/         # 页面区块组件 (Navbar, Hero, Products 等)
 │   ├── components/ui/      # Shadcn UI 组件库
+│   ├── data/               # 数据文件 (products, advantages, stats)
 │   ├── hooks/              # 自定义 Hooks
 │   ├── lib/                # 工具库
 │   │   └── utils.ts        # 通用工具函数 (cn)
@@ -63,3 +65,30 @@
 
 - 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
 - Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+
+## 页面组件结构
+
+本项目为凯艺软件开发工作室官网，采用深色主题设计，主要组件位于 `src/components/`：
+
+| 组件 | 文件 | 说明 |
+|------|------|------|
+| Navbar | `components/Navbar.tsx` | 顶部导航栏，毛玻璃效果，响应式移动端菜单 |
+| Hero | `components/Hero.tsx` | 首屏大标题区域，带网格背景和渐变光效 |
+| Products | `components/Products.tsx` | 产品卡片网格展示区 |
+| Advantages | `components/Advantages.tsx` | 技术优势展示区 |
+| Stats | `components/Stats.tsx` | 关键数字展示区，带计数动效 |
+| About | `components/About.tsx` | 关于我们介绍区 |
+| Contact | `components/Contact.tsx` | 联系方式与表单区 |
+| Footer | `components/Footer.tsx` | 页脚版权信息 |
+
+### 数据文件
+
+产品、优势、统计数据分别提取为独立数据文件，方便维护：
+
+- `src/data/products.ts` — 产品列表（名称、描述、图标）
+- `src/data/advantages.ts` — 技术优势列表
+- `src/data/stats.ts` — 关键数字列表
+
+### 新增产品
+
+在 `src/data/products.ts` 的 `products` 数组中添加新条目即可，需指定 `name`、`description`、`icon`（Lucide 图标组件）和 `href`。
