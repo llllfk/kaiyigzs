@@ -1,0 +1,231 @@
+-- Sales CRM schema (Coze PostgreSQL)
+
+CREATE TABLE IF NOT EXISTS companies (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  config JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT REFERENCES companies(id),
+  manager_id BIGINT REFERENCES users(id),
+  role VARCHAR(32) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(200) NOT NULL UNIQUE,
+  phone VARCHAR(50),
+  password_hash TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_company_admin
+  ON users (company_id)
+  WHERE role = 'company_admin' AND status = 'active';
+
+CREATE TABLE IF NOT EXISTS customers (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  owner_id BIGINT NOT NULL REFERENCES users(id),
+  name VARCHAR(200) NOT NULL,
+  industry VARCHAR(100),
+  scale VARCHAR(50),
+  source VARCHAR(100),
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  tags JSONB DEFAULT '[]',
+  profile_json JSONB DEFAULT '{}',
+  extra JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  title VARCHAR(100),
+  phone VARCHAR(50),
+  wechat VARCHAR(100),
+  email VARCHAR(200),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS opportunities (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  owner_id BIGINT NOT NULL REFERENCES users(id),
+  title VARCHAR(200) NOT NULL,
+  stage VARCHAR(32) NOT NULL DEFAULT 'lead',
+  amount NUMERIC(14, 2),
+  expected_close_date DATE,
+  stage_suggestion_json JSONB,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS follow_ups (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  opportunity_id BIGINT REFERENCES opportunities(id) ON DELETE SET NULL,
+  owner_id BIGINT NOT NULL REFERENCES users(id),
+  type VARCHAR(50) NOT NULL DEFAULT 'call',
+  content TEXT NOT NULL,
+  followed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+  opportunity_id BIGINT REFERENCES opportunities(id) ON DELETE SET NULL,
+  owner_id BIGINT NOT NULL REFERENCES users(id),
+  title VARCHAR(300) NOT NULL,
+  due_at TIMESTAMPTZ,
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  source VARCHAR(20) NOT NULL DEFAULT 'manual',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT REFERENCES companies(id),
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(300) NOT NULL,
+  body TEXT,
+  link VARCHAR(500),
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS competitors (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  name VARCHAR(200) NOT NULL,
+  summary TEXT,
+  strengths TEXT,
+  weaknesses TEXT,
+  playbook TEXT,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS competitor_mentions (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  competitor_id BIGINT REFERENCES competitors(id) ON DELETE SET NULL,
+  customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+  insight_id BIGINT,
+  name VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS media_assets (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+  uploader_id BIGINT NOT NULL REFERENCES users(id),
+  kind VARCHAR(50) NOT NULL,
+  file_name VARCHAR(300) NOT NULL,
+  uri TEXT NOT NULL,
+  mime VARCHAR(100),
+  size_bytes BIGINT,
+  transcript TEXT,
+  status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ai_insights (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  customer_id BIGINT REFERENCES customers(id) ON DELETE CASCADE,
+  media_asset_id BIGINT REFERENCES media_assets(id) ON DELETE SET NULL,
+  kind VARCHAR(50) NOT NULL,
+  result_json JSONB NOT NULL DEFAULT '{}',
+  summary TEXT,
+  created_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_reviews (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  opportunity_id BIGINT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+  outcome VARCHAR(20) NOT NULL,
+  reason_category VARCHAR(100),
+  detail TEXT,
+  lessons TEXT,
+  extra JSONB DEFAULT '{}',
+  created_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS kb_folders (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  parent_id BIGINT REFERENCES kb_folders(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS kb_files (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  folder_id BIGINT NOT NULL REFERENCES kb_folders(id) ON DELETE CASCADE,
+  file_name VARCHAR(300) NOT NULL,
+  uri TEXT NOT NULL,
+  mime VARCHAR(100),
+  size_bytes BIGINT,
+  uploader_id BIGINT NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS kb_qa_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  user_id BIGINT NOT NULL REFERENCES users(id),
+  title VARCHAR(200),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS kb_qa_messages (
+  id BIGSERIAL PRIMARY KEY,
+  session_id BIGINT NOT NULL REFERENCES kb_qa_sessions(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL,
+  content TEXT NOT NULL,
+  sources_json JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT,
+  actor_id BIGINT,
+  action VARCHAR(100) NOT NULL,
+  target_type VARCHAR(50),
+  target_id VARCHAR(50),
+  summary TEXT,
+  ip VARCHAR(64),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customer_tags (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  name VARCHAR(50) NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (company_id, name)
+);
