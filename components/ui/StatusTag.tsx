@@ -48,6 +48,7 @@ const QUOTE_LABELS: Record<string, string> = {
   draft: "草稿",
   pending_approval: "待审批",
   approved: "已通过",
+  confirmed: "客户已确认",
   rejected: "已驳回",
   void: "已作废",
 };
@@ -92,6 +93,7 @@ const TONES = {
     draft: "bg-slate-100 text-slate-700 ring-slate-500/15",
     pending_approval: "bg-amber-50 text-amber-800 ring-amber-600/15",
     approved: "bg-emerald-50 text-emerald-700 ring-emerald-600/15",
+    confirmed: "bg-sky-50 text-sky-800 ring-sky-600/15",
     rejected: "bg-rose-50 text-rose-700 ring-rose-600/15",
     void: "bg-slate-100 text-slate-500 ring-slate-500/15",
   },

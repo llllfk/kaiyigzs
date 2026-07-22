@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@/lib/auth";
-import pool from "@/lib/db";
+import { getSessionUser, withCompanyContext } from "@/lib/auth";
 import { AppShell } from "@/components/shared/AppShell";
 
 export default async function PortalLayout({
@@ -8,23 +7,10 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getSessionUser();
-  if (!user) redirect("/login");
+  const raw = await getSessionUser();
+  if (!raw) redirect("/login");
+  const user = withCompanyContext(raw);
 
-  let unread = 0;
-  try {
-    const res = await pool.query(
-      `SELECT COUNT(*)::int AS c FROM notifications WHERE user_id = $1 AND read_at IS NULL`,
-      [user.id]
-    );
-    unread = res.rows[0]?.c || 0;
-  } catch {
-    unread = 0;
-  }
-
-  return (
-    <AppShell user={user} unread={unread}>
-      {children}
-    </AppShell>
-  );
+  // 未读数由 AppShell 客户端拉取，避免每次站内跳转都阻塞布局查库
+  return <AppShell user={user}>{children}</AppShell>;
 }

@@ -4,6 +4,9 @@ import { requireSession } from "@/lib/auth";
 import { assertCanAccessCustomer } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { normalizePhone } from "@/lib/utils";
+import { isCustomerStatus } from "@/types";
+import { mergePainPoints } from "@/lib/pain-points";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -22,11 +25,7 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     );
     if (!result.rows[0]) return jsonError("未找到", 404);
 
-    const [contacts, followUps, opportunities, insights] = await Promise.all([
-      pool.query(
-        `SELECT * FROM contacts WHERE customer_id = $1 ORDER BY id DESC`,
-        [id]
-      ),
+    const [followUps, opportunities, insights, mediaAssets] = await Promise.all([
       pool.query(
         `SELECT f.*, u.name AS owner_name FROM follow_ups f
          LEFT JOIN users u ON u.id = f.owner_id
@@ -41,14 +40,41 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
         `SELECT * FROM ai_insights WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 20`,
         [id]
       ),
+      pool.query(
+        `SELECT m.id, m.kind, m.file_name, m.status, m.created_at, m.uploader_id, m.duration_ms,
+                COALESCE(insight.result_json->'pain_points', '[]'::jsonb) AS pain_points,
+                COALESCE(insight.result_json->'competitors', '[]'::jsonb) AS competitors
+         FROM media_assets m
+         LEFT JOIN LATERAL (
+           SELECT i.result_json
+           FROM ai_insights i
+           WHERE i.media_asset_id = m.id
+           ORDER BY i.created_at DESC
+           LIMIT 1
+         ) insight ON TRUE
+         WHERE m.customer_id = $1
+         ORDER BY m.created_at DESC
+         LIMIT 10`,
+        [id]
+      ),
     ]);
 
+    const customer = result.rows[0];
+    const profile = (customer.profile_json || {}) as Record<string, unknown>;
+
     return jsonOk({
-      ...result.rows[0],
-      contacts: contacts.rows,
+      ...customer,
+      profile_json: {
+        ...profile,
+        pain_points: mergePainPoints([], profile.pain_points),
+      },
       follow_ups: followUps.rows,
       opportunities: opportunities.rows,
       insights: insights.rows,
+      media_assets: mediaAssets.rows.map((row) => ({
+        ...row,
+        pain_points: mergePainPoints([], row.pain_points, 5),
+      })),
     });
   } catch (err) {
     return handleApiError(err);
@@ -62,27 +88,46 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
     const existing = await assertCanAccessCustomer(user, Number(id));
     const body = await request.json();
 
+    const companyName =
+      body.company_name !== undefined ? String(body.company_name || "").trim() : null;
+    const name = body.name !== undefined ? String(body.name || "").trim() : null;
+    if (companyName !== null && !companyName) return jsonError("客户公司必填");
+    if (name !== null && !name) return jsonError("客户名必填");
+
+    let nextStatus: string | null = null;
+    if (body.status !== undefined && body.status !== null) {
+      if (!isCustomerStatus(body.status)) {
+        return jsonError("客户状态无效，可选：跟进中 / 暂停 / 无效");
+      }
+      nextStatus = body.status;
+    }
+
     const ownerChanged =
       body.owner_id != null && Number(body.owner_id) !== existing.owner_id;
 
     const result = await pool.query(
       `UPDATE customers SET
-        name = COALESCE($1, name),
-        industry = COALESCE($2, industry),
-        scale = COALESCE($3, scale),
-        source = COALESCE($4, source),
-        status = COALESCE($5, status),
-        owner_id = COALESCE($6, owner_id),
-        tags = COALESCE($7::jsonb, tags),
+        company_name = COALESCE($1, company_name),
+        name = COALESCE($2, name),
+        phone = CASE WHEN $3::boolean THEN $4 ELSE phone END,
+        industry = COALESCE($5, industry),
+        scale = COALESCE($6, scale),
+        source = COALESCE($7, source),
+        status = COALESCE($8, status),
+        owner_id = COALESCE($9, owner_id),
+        tags = COALESCE($10::jsonb, tags),
         updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8
+       WHERE id = $11
        RETURNING *`,
       [
-        body.name ?? null,
-        body.industry ?? null,
-        body.scale ?? null,
-        body.source ?? null,
-        body.status ?? null,
+        companyName,
+        name,
+        body.phone !== undefined,
+        body.phone !== undefined ? normalizePhone(body.phone) : null,
+        body.industry !== undefined ? body.industry || null : null,
+        body.scale !== undefined ? body.scale || null : null,
+        body.source !== undefined ? body.source || null : null,
+        nextStatus,
         body.owner_id != null ? Number(body.owner_id) : null,
         body.tags ? JSON.stringify(body.tags) : null,
         id,
@@ -103,7 +148,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
         action: "customer.update",
         targetType: "customer",
         targetId: id,
-        summary: `更新客户 ${result.rows[0].name}`,
+        summary: `更新客户 ${result.rows[0].company_name || ""} / ${result.rows[0].name}`,
       });
     }
 

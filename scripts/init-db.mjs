@@ -24,29 +24,113 @@ loadEnv();
 
 const connectionString =
   process.env.DATABASE_URL ||
-  "postgresql://postgres:postgres@localhost:5432/sales_crm";
+  "postgresql://postgres:postgres@127.0.0.1:5433/sales_crm";
+
+async function ensureUser(pool, params) {
+  const existing = await pool.query(`SELECT id FROM users WHERE email = $1`, [
+    params.email,
+  ]);
+  if (existing.rows[0]) {
+    if (params.phone) {
+      await pool.query(
+        `UPDATE users SET phone = COALESCE(phone, $1), updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [params.phone, existing.rows[0].id]
+      );
+    }
+    return existing.rows[0].id;
+  }
+  const hash = await bcrypt.hash(params.password, 10);
+  const res = await pool.query(
+    `INSERT INTO users
+      (company_id, manager_id, role, name, email, phone, password_hash, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
+     RETURNING id`,
+    [
+      params.companyId ?? null,
+      params.managerId ?? null,
+      params.role,
+      params.name,
+      params.email,
+      params.phone ?? null,
+      hash,
+    ]
+  );
+  console.log(
+    `Created ${params.role}: ${params.email}${params.phone ? ` / ${params.phone}` : ""} / ${params.password}`
+  );
+  return res.rows[0].id;
+}
 
 async function main() {
   const pool = new pg.Pool({ connectionString });
   const schema = fs.readFileSync(path.join(root, "sql", "schema.sql"), "utf8");
   await pool.query(schema);
 
-  const existing = await pool.query(
-    `SELECT id FROM users WHERE email = $1`,
-    ["admin@kaiyi.local"]
+  await ensureUser(pool, {
+    role: "super_admin",
+    name: "超级管理员",
+    email: "admin@kaiyi.local",
+    phone: "13800000001",
+    password: "Admin123!",
+  });
+
+  // Demo company + roles so full CRM menus are visible
+  let companyId;
+  const company = await pool.query(
+    `SELECT id FROM companies WHERE name = $1 LIMIT 1`,
+    ["凯艺演示科技"]
+  );
+  if (company.rows[0]) {
+    companyId = company.rows[0].id;
+    console.log("Demo company already exists");
+  } else {
+    const created = await pool.query(
+      `INSERT INTO companies (name, status, config)
+       VALUES ('凯艺演示科技', 'active', '{}'::jsonb)
+       RETURNING id`
+    );
+    companyId = created.rows[0].id;
+    console.log("Created demo company: 凯艺演示科技");
+  }
+
+  // default pool recycle days = 7
+  await pool.query(
+    `UPDATE companies SET
+      config = COALESCE(config, '{}'::jsonb) || '{"pool_recycle_days": 7}'::jsonb
+     WHERE id = $1`,
+    [companyId]
   );
 
-  if (existing.rows.length === 0) {
-    const hash = await bcrypt.hash("Admin123!", 10);
-    await pool.query(
-      `INSERT INTO users (company_id, role, name, email, password_hash, status)
-       VALUES (NULL, 'super_admin', '超级管理员', 'admin@kaiyi.local', $1, 'active')`,
-      [hash]
-    );
-    console.log("Created super admin: admin@kaiyi.local / Admin123!");
-  } else {
-    console.log("Super admin already exists");
-  }
+  const companyAdminId = await ensureUser(pool, {
+    companyId,
+    role: "company_admin",
+    name: "公司管理员",
+    email: "company@kaiyi.local",
+    phone: "13800000002",
+    password: "Company123!",
+  });
+
+  const managerId = await ensureUser(pool, {
+    companyId,
+    role: "sales_manager",
+    name: "销售经理",
+    email: "manager@kaiyi.local",
+    phone: "13800000003",
+    password: "Manager123!",
+  });
+
+  await ensureUser(pool, {
+    companyId,
+    managerId,
+    role: "sales",
+    name: "销售人员",
+    email: "sales@kaiyi.local",
+    phone: "13800000004",
+    password: "Sales123!",
+  });
+
+  // Ensure company admin uniqueness is satisfied (already one)
+  void companyAdminId;
 
   await pool.end();
   console.log("Database initialized.");

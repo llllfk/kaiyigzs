@@ -6,21 +6,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { useAppRouter } from "@/hooks/useAppRouter";
+import { pageCacheInvalidate, prefetchNavPaths } from "@/lib/page-cache";
+import {
+  SessionUserProvider,
+  useSessionUser,
+} from "@/components/shared/SessionUserContext";
 import { ROLE_LABELS, type SessionUser } from "@/types";
 
 type NavLeaf = { href: string; label: string };
+
+const UNREAD_TTL_MS = 60_000;
+let unreadCache: { count: number; at: number } | null = null;
+let unreadRequest: Promise<number | null> | null = null;
 
 type NavEntry =
   | { type: "link"; href: string; label: string }
   | { type: "group"; id: string; label: string; children: NavLeaf[] };
 
-const SIDEBAR_OPEN_KEY = "crm:sidebar-open";
-
-/** 方案 B：客户、销售默认展开（工作台置顶常显） */
-const DEFAULT_OPEN_GROUPS = ["customers", "sales", "platform"];
-
 function pathActive(pathname: string, href: string) {
-  return pathname === href || pathname.startsWith(href + "/");
+  if (pathname === href) return true;
+  // /platform 是独立页面，不能把 /platform/voices 等子路径算作它的激活态
+  if (href === "/platform") return false;
+  return pathname.startsWith(href + "/");
 }
 
 function navFor(user: SessionUser): NavEntry[] {
@@ -34,6 +41,7 @@ function navFor(user: SessionUser): NavEntry[] {
         children: [
           { href: "/platform", label: "平台概况" },
           { href: "/companies", label: "公司管理" },
+          { href: "/platform/voices", label: "音色管理" },
         ],
       },
       {
@@ -77,7 +85,9 @@ function navFor(user: SessionUser): NavEntry[] {
         { href: "/knowledge", label: "知识库" },
         { href: "/competitors", label: "竞品" },
         { href: "/insights", label: "分析" },
+        { href: "/reports", label: "经营报表" },
         { href: "/uploads", label: "解析记录" },
+        { href: "/voices/records", label: "声音合成" },
       ],
     },
   ];
@@ -104,26 +114,6 @@ function navFor(user: SessionUser): NavEntry[] {
 
 function groupContainsPath(group: Extract<NavEntry, { type: "group" }>, pathname: string) {
   return group.children.some((c) => pathActive(pathname, c.href));
-}
-
-function readStoredOpen(): Record<string, boolean> | null {
-  try {
-    const raw = localStorage.getItem(SIDEBAR_OPEN_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed as Record<string, boolean>;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredOpen(map: Record<string, boolean>) {
-  try {
-    localStorage.setItem(SIDEBAR_OPEN_KEY, JSON.stringify(map));
-  } catch {
-    /* ignore */
-  }
 }
 
 function NavIcon({ name }: { name: string }) {
@@ -270,7 +260,8 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
-function UserMenu({ user }: { user: SessionUser }) {
+function UserMenu() {
+  const user = useSessionUser();
   const router = useAppRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -294,9 +285,17 @@ function UserMenu({ user }: { user: SessionUser }) {
 
   async function logout() {
     setOpen(false);
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
+    pageCacheInvalidate();
+    // 最多等 600ms：会话已在服务端优先清除，超时也直接进登录页
+    try {
+      await Promise.race([
+        fetch("/api/auth/logout", { method: "POST", keepalive: true }),
+        new Promise<void>((resolve) => window.setTimeout(resolve, 600)),
+      ]);
+    } catch {
+      /* ignore */
+    }
+    window.location.assign("/login");
   }
 
   return (
@@ -371,64 +370,31 @@ function UserMenu({ user }: { user: SessionUser }) {
   );
 }
 
+function useSidebarOpenMap() {
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = useCallback((id: string) => {
+    setOpenMap((prev) => ({ ...prev, [id]: prev[id] !== true }));
+  }, []);
+
+  return { openMap, toggleGroup };
+}
+
 function SideNav({
   entries,
   pathname,
+  openMap,
+  onToggleGroup,
   onNavigate,
+  onPrefetchGroup,
 }: {
   entries: NavEntry[];
   pathname: string;
+  openMap: Record<string, boolean>;
+  onToggleGroup: (id: string) => void;
   onNavigate?: () => void;
+  onPrefetchGroup?: (hrefs: string[]) => void;
 }) {
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>(() => {
-    const map: Record<string, boolean> = {};
-    for (const id of DEFAULT_OPEN_GROUPS) map[id] = true;
-    return map;
-  });
-  const hydrated = useRef(false);
-
-  useEffect(() => {
-    if (hydrated.current) return;
-    hydrated.current = true;
-    const map: Record<string, boolean> = {};
-    for (const id of DEFAULT_OPEN_GROUPS) map[id] = true;
-    const stored = readStoredOpen();
-    if (stored) {
-      for (const [k, v] of Object.entries(stored)) {
-        if (typeof v === "boolean") map[k] = v;
-      }
-    }
-    for (const entry of entries) {
-      if (entry.type === "group" && groupContainsPath(entry, pathname)) {
-        map[entry.id] = true;
-      }
-    }
-    setOpenMap(map);
-  }, [entries, pathname]);
-
-  useEffect(() => {
-    setOpenMap((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const entry of entries) {
-        if (entry.type === "group" && groupContainsPath(entry, pathname) && !next[entry.id]) {
-          next[entry.id] = true;
-          changed = true;
-        }
-      }
-      if (changed) writeStoredOpen(next);
-      return changed ? next : prev;
-    });
-  }, [pathname, entries]);
-
-  function toggleGroup(id: string) {
-    setOpenMap((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      writeStoredOpen(next);
-      return next;
-    });
-  }
-
   return (
     <nav className="flex flex-col gap-3 p-3">
       {entries.map((entry) => {
@@ -452,7 +418,7 @@ function SideNav({
           );
         }
 
-        const expanded = Boolean(openMap[entry.id]);
+        const expanded = openMap[entry.id] === true;
         const groupActive = groupContainsPath(entry, pathname);
 
         return (
@@ -460,9 +426,14 @@ function SideNav({
             <button
               type="button"
               aria-expanded={expanded}
-              onClick={() => toggleGroup(entry.id)}
+              onClick={() => {
+                if (!expanded) {
+                  onPrefetchGroup?.(entry.children.map((c) => c.href));
+                }
+                onToggleGroup(entry.id);
+              }}
               className={cn(
-                "flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left",
+                "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left",
                 "text-[12px] font-bold tracking-wide",
                 groupActive ? "text-white" : "text-white/85",
                 "hover:bg-white/10 hover:text-white",
@@ -486,7 +457,8 @@ function SideNav({
                         "block min-h-10 w-full rounded-lg px-3 py-2 text-sm font-medium",
                         "text-white/55 hover:bg-[var(--color-sidebar-hover)] hover:text-white/85",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/60",
-                        active && "bg-[var(--color-sidebar-hover)] font-semibold text-white shadow-sm"
+                        active &&
+                          "bg-[var(--color-sidebar-hover)] font-semibold text-white shadow-sm"
                       )}
                     >
                       {item.label}
@@ -513,24 +485,61 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useAppRouter();
-  const [open, setOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [unreadCount, setUnreadCount] = useState(unread);
   const acting = Boolean(user.act_as_company_id);
   const showCompanyChrome = user.role !== "super_admin" || acting;
-  const entries = useMemo(() => navFor(user), [user]);
+  const entries = useMemo(
+    () => navFor(user),
+    // 只用权限相关字段，避免 user 引用变化导致菜单强制重开
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user.role, user.act_as_company_id, user.company_id, user.id]
+  );
+  const { openMap, toggleGroup } = useSidebarOpenMap();
   const showBack = pathname.split("/").filter(Boolean).length >= 2;
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    function onViewport() {
+      if (mq.matches) setMobileOpen(false);
+    }
+    onViewport();
+    mq.addEventListener("change", onViewport);
+    return () => mq.removeEventListener("change", onViewport);
+  }, []);
 
   useEffect(() => {
     setUnreadCount(unread);
   }, [unread]);
 
-  const refreshUnread = useCallback(async () => {
+  // 展开菜单表示存在导航意图，但限制预取数量，避免形成请求风暴。
+  const prefetchGroup = useCallback(
+    (hrefs: string[]) => prefetchNavPaths(router, hrefs.slice(0, 2)),
+    [router]
+  );
+
+  const refreshUnread = useCallback(async (force = false) => {
+    if (!force && unreadCache && Date.now() - unreadCache.at < UNREAD_TTL_MS) {
+      setUnreadCount(unreadCache.count);
+      return;
+    }
     try {
-      const res = await fetch("/api/notifications?page=1&pageSize=1&unread=1");
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json.meta && typeof json.meta.total === "number") {
-        setUnreadCount(json.meta.total);
+      unreadRequest ??= fetch("/api/notifications?page=1&pageSize=1&unread=1")
+        .then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          return res.ok && typeof json.meta?.total === "number"
+            ? Number(json.meta.total)
+            : null;
+        })
+        .catch(() => null)
+        .finally(() => {
+          unreadRequest = null;
+        });
+      const count = await unreadRequest;
+      if (count != null) {
+        unreadCache = { count, at: Date.now() };
+        setUnreadCount(count);
       }
     } catch {
       /* ignore */
@@ -540,7 +549,8 @@ export function AppShell({
   useEffect(() => {
     void refreshUnread();
     function onChanged() {
-      void refreshUnread();
+      unreadCache = null;
+      void refreshUnread(true);
     }
     window.addEventListener("crm:notifications-changed", onChanged);
     function onVisible() {
@@ -551,7 +561,7 @@ export function AppShell({
       window.removeEventListener("crm:notifications-changed", onChanged);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshUnread, pathname]);
+  }, [refreshUnread]);
 
   async function exitCompanyView() {
     setExiting(true);
@@ -565,29 +575,34 @@ export function AppShell({
     }
   }
 
-  const nav = (
-    <SideNav entries={entries} pathname={pathname} onNavigate={() => setOpen(false)} />
-  );
+  const navProps = {
+    entries,
+    pathname,
+    openMap,
+    onToggleGroup: toggleGroup,
+    onPrefetchGroup: prefetchGroup,
+  };
 
   return (
+    <SessionUserProvider initialUser={user}>
     <div className="min-h-screen md:flex">
-      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-20 md:flex md:w-60 md:flex-col md:overflow-hidden bg-[var(--color-sidebar)] text-white">
+      <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-20 md:flex md:w-52 md:flex-col md:overflow-hidden bg-[var(--color-sidebar)] text-white">
         <div className="shrink-0 px-4 py-5 border-b border-white/10">
           <div className="text-lg font-bold tracking-tight">凯艺销售CRM</div>
           <div className="mt-1 text-xs text-white/60">销售客户关系管理</div>
         </div>
         <div className="sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-0">
-          {nav}
+          <SideNav {...navProps} />
         </div>
       </aside>
 
-      {open && (
+      {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <button
             type="button"
             className="absolute inset-0 bg-black/40"
             aria-label="关闭菜单"
-            onClick={() => setOpen(false)}
+            onClick={() => setMobileOpen(false)}
           />
           <aside className="absolute left-0 top-0 flex h-full w-72 flex-col overflow-hidden bg-[var(--color-sidebar)] text-white shadow-xl">
             <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-5">
@@ -595,18 +610,18 @@ export function AppShell({
                 <div className="text-lg font-bold">凯艺销售CRM</div>
                 <div className="text-xs text-white/60">销售客户关系管理</div>
               </div>
-              <Button variant="ghost" onClick={() => setOpen(false)}>
+              <Button variant="ghost" onClick={() => setMobileOpen(false)}>
                 关闭
               </Button>
             </div>
             <div className="sidebar-nav-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {nav}
+              <SideNav {...navProps} onNavigate={() => setMobileOpen(false)} />
             </div>
           </aside>
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col md:pl-60">
+      <div className="flex min-w-0 flex-1 flex-col md:pl-52">
         {acting && (
           <div className="sticky top-0 z-40 flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
             <span>
@@ -628,13 +643,17 @@ export function AppShell({
             acting ? "top-10" : "top-0"
           )}
         >
-          <button
-            type="button"
-            className="btn btn-secondary md:hidden min-h-9 px-3"
-            onClick={() => setOpen(true)}
-          >
-            菜单
-          </button>
+          <div className="md:hidden">
+            <button
+              type="button"
+              className="btn btn-secondary min-h-9 px-3"
+              aria-expanded={mobileOpen}
+              aria-label="菜单"
+              onClick={() => setMobileOpen(true)}
+            >
+              菜单
+            </button>
+          </div>
           {showBack && (
             <Button
               type="button"
@@ -654,7 +673,7 @@ export function AppShell({
               </span>
             )}
           </AppLink>
-          <UserMenu user={user} />
+          <UserMenu />
         </header>
         <main
           className={cn(
@@ -692,5 +711,6 @@ export function AppShell({
         </nav>
       )}
     </div>
+    </SessionUserProvider>
   );
 }

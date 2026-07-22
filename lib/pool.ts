@@ -47,6 +47,40 @@ export async function setPoolRecycleDays(
   return n;
 }
 
+/** 同一公司自动回收最小间隔，避免列表/预取每次 GET 都扫库写库 */
+const AUTO_RECYCLE_MIN_INTERVAL_MS = 5 * 60_000;
+const lastAutoRecycleAt = new Map<number, number>();
+
+/**
+ * 列表打开时的自动回收：每公司最多 5 分钟跑一次。
+ * 手动「立即回收」请用 recycleStaleCustomers（不受限流）。
+ */
+export async function maybeAutoRecycleStaleCustomers(companyId: number) {
+  const now = Date.now();
+  const last = lastAutoRecycleAt.get(companyId) ?? 0;
+  if (now - last < AUTO_RECYCLE_MIN_INTERVAL_MS) {
+    return {
+      recycled: 0,
+      days: 0,
+      rows: [] as {
+        id: number;
+        name: string;
+        previous_owner_id: number | null;
+      }[],
+      skipped: true as const,
+    };
+  }
+  lastAutoRecycleAt.set(companyId, now);
+  try {
+    const result = await recycleStaleCustomers(companyId);
+    return { ...result, skipped: false as const };
+  } catch (err) {
+    // 失败时允许稍后重试
+    lastAutoRecycleAt.delete(companyId);
+    throw err;
+  }
+}
+
 /** Move overdue private customers into public pool */
 export async function recycleStaleCustomers(companyId: number) {
   const days = await getPoolRecycleDays(companyId);

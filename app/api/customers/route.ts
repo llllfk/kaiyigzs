@@ -1,105 +1,39 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
-import {
-  buildOwnerFilter,
-  canSearchCustomersByOwner,
-  getVisibleOwnerIds,
-  narrowOwnerId,
-} from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
-import { normalizePhone, parseOwnerIdParam } from "@/lib/utils";
+import { normalizePhone } from "@/lib/utils";
 import { isCustomerStatus } from "@/types";
-import { parsePageParams, resolvePagination } from "@/lib/pagination";
+import { parsePageParams } from "@/lib/pagination";
+import {
+  CustomersListError,
+  listCustomers,
+} from "@/lib/customers-list";
 
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession();
     const sp = request.nextUrl.searchParams;
-    const q = sp.get("q")?.trim() || "";
-    const ownerQ = canSearchCustomersByOwner(user)
-      ? sp.get("owner_q")?.trim() || ""
-      : "";
-    const from = sp.get("from")?.trim() || "";
-    const to = sp.get("to")?.trim() || "";
-    const statusParam = sp.get("status")?.trim() || "";
     const { paginate, page, pageSize } = parsePageParams(sp);
 
-    const owners = await getVisibleOwnerIds(user);
-    const filter = buildOwnerFilter(owners, user.company_id, "c");
-    const scopedOwnerId = narrowOwnerId(owners, parseOwnerIdParam(sp.get("owner_id")));
+    const { rows, meta } = await listCustomers(user, {
+      q: sp.get("q") || "",
+      owner_q: sp.get("owner_q") || "",
+      from: sp.get("from") || "",
+      to: sp.get("to") || "",
+      status: sp.get("status") || "",
+      owner_id: sp.get("owner_id"),
+      paginate,
+      page,
+      pageSize,
+    });
 
-    const params: unknown[] = [...filter.params];
-    let where = filter.sql;
-
-    if (scopedOwnerId != null) {
-      params.push(scopedOwnerId);
-      where += ` AND c.owner_id = $${params.length}`;
-    }
-
-    if (q) {
-      params.push(`%${q}%`);
-      where += ` AND (
-        c.name ILIKE $${params.length}
-        OR c.company_name ILIKE $${params.length}
-        OR c.industry ILIKE $${params.length}
-        OR c.phone ILIKE $${params.length}
-      )`;
-    }
-
-    if (ownerQ) {
-      params.push(`%${ownerQ}%`);
-      where += ` AND u.name ILIKE $${params.length}`;
-    }
-
-    if (statusParam) {
-      if (!isCustomerStatus(statusParam)) {
-        return jsonError("客户状态无效，可选：跟进中 / 暂停 / 无效");
-      }
-      params.push(statusParam);
-      where += ` AND c.status = $${params.length}`;
-    }
-
-    if (from) {
-      params.push(from);
-      where += ` AND c.created_at >= $${params.length}::date`;
-    }
-    if (to) {
-      params.push(to);
-      where += ` AND c.created_at < ($${params.length}::date + INTERVAL '1 day')`;
-    }
-
-    const fromSql = `FROM customers c
-      LEFT JOIN users u ON u.id = c.owner_id
-      WHERE ${where}`;
-
-    const selectSql = `SELECT c.*, u.name AS owner_name,
-      (SELECT COUNT(*)::int FROM opportunities o WHERE o.customer_id = c.id) AS opportunity_count,
-      (SELECT MAX(f.followed_at) FROM follow_ups f WHERE f.customer_id = c.id) AS last_follow_at`;
-
-    if (!paginate) {
-      const result = await pool.query(
-        `${selectSql} ${fromSql} ORDER BY c.updated_at DESC LIMIT 200`,
-        params
-      );
-      return jsonOk(result.rows);
-    }
-
-    const countRes = await pool.query(`SELECT COUNT(*)::int AS total ${fromSql}`, params);
-    const total = countRes.rows[0]?.total ?? 0;
-    const { meta, offset, limit } = resolvePagination(total, page, pageSize);
-
-    const listParams = [...params, limit, offset];
-    const result = await pool.query(
-      `${selectSql} ${fromSql}
-       ORDER BY c.updated_at DESC
-       LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
-      listParams
-    );
-
-    return jsonOk(result.rows, 200, meta);
+    return paginate ? jsonOk(rows, 200, meta) : jsonOk(rows);
   } catch (err) {
+    if (err instanceof CustomersListError) {
+      return jsonError(err.message, err.status);
+    }
     return handleApiError(err);
   }
 }

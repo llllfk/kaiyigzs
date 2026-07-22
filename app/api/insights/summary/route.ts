@@ -1,19 +1,22 @@
 import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
-import { getVisibleOwnerIds, buildOwnerFilter } from "@/lib/permissions";
+import { getVisibleOwnerIds, buildOwnerFilter, crmRole } from "@/lib/permissions";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { aggregatePainPointCounts } from "@/lib/pain-points";
 
 export async function GET() {
   try {
     const user = await requireSession();
-    if (user.role === "super_admin") {
-      return jsonError("请切换到公司视图查看分析", 400);
+    if (user.role === "super_admin" && !user.act_as_company_id) {
+      return jsonError("请先进入公司业务视图查看分析", 400);
     }
     if (!user.company_id) return jsonError("缺少公司信息", 400);
 
     const owners = await getVisibleOwnerIds(user);
     const cFilter = buildOwnerFilter(owners, user.company_id, "c");
-    const oFilter = buildOwnerFilter(owners, user.company_id, "o");
+    const oFilter = buildOwnerFilter(owners, user.company_id, "o", {
+      includePoolStatus: false,
+    });
 
     const [
       customersByIndustry,
@@ -59,7 +62,7 @@ export async function GET() {
                 COUNT(*)::int AS value
          FROM customers c
          WHERE ${cFilter.sql}
-         GROUP BY 1 ORDER BY value DESC LIMIT 15`,
+         GROUP BY 1 ORDER BY value DESC LIMIT 200`,
         cFilter.params
       ),
       pool.query(
@@ -109,14 +112,14 @@ export async function GET() {
       customers_by_source: customersBySource.rows,
       opportunities_by_stage: oppByStage.rows,
       follow_ups_14d: followFreq.rows,
-      pain_points: painPoints.rows,
+      pain_points: aggregatePainPointCounts(painPoints.rows, 15),
       competitors: competitorHits.rows,
       reviews: reviews.rows,
       intent_distribution: intentDist.rows,
       recent_insights: recentInsights.rows,
       upload_stats: uploadStats.rows,
       scope:
-        user.role === "company_admin"
+        crmRole(user) === "company_admin"
           ? "company"
           : user.role === "sales_manager"
             ? "team"

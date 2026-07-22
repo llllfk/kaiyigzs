@@ -138,6 +138,22 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 核心业务查询索引（列表过滤、工作台聚合、owner 范围）
+CREATE INDEX IF NOT EXISTS idx_customers_company_pool_status
+  ON customers (company_id, pool_status, status);
+CREATE INDEX IF NOT EXISTS idx_customers_owner_pool
+  ON customers (owner_id, pool_status);
+CREATE INDEX IF NOT EXISTS idx_follow_ups_customer_followed
+  ON follow_ups (customer_id, followed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_company_status_due
+  ON tasks (company_id, status, due_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_owner_status
+  ON tasks (owner_id, status);
+CREATE INDEX IF NOT EXISTS idx_opportunities_company_stage
+  ON opportunities (company_id, stage);
+CREATE INDEX IF NOT EXISTS idx_opportunities_owner_stage
+  ON opportunities (owner_id, stage);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id BIGSERIAL PRIMARY KEY,
   company_id BIGINT REFERENCES companies(id),
@@ -212,6 +228,22 @@ CREATE TABLE IF NOT EXISTS opportunity_reviews (
   created_by BIGINT REFERENCES users(id),
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 商机阶段履历：谁、何时、从哪到哪、为何
+CREATE TABLE IF NOT EXISTS opportunity_stage_history (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  opportunity_id BIGINT NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+  actor_id BIGINT REFERENCES users(id),
+  from_stage VARCHAR(32),
+  to_stage VARCHAR(32) NOT NULL,
+  reason TEXT,
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_opp_stage_history_opp_created
+  ON opportunity_stage_history (opportunity_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS kb_folders (
   id BIGSERIAL PRIMARY KEY,
@@ -296,6 +328,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX IF NOT EXISTS idx_audit_logs_company_created
+  ON audit_logs (company_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS platform_env (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -355,3 +390,104 @@ CREATE TABLE IF NOT EXISTS quote_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_quote_items_quote ON quote_items(quote_id);
+
+-- 报价客户确认分享链接（P2）
+CREATE TABLE IF NOT EXISTS quote_shares (
+  id BIGSERIAL PRIMARY KEY,
+  quote_id BIGINT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  company_id BIGINT NOT NULL REFERENCES companies(id),
+  token VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  expires_at TIMESTAMPTZ NOT NULL,
+  max_views INT NOT NULL DEFAULT 10,
+  view_count INT NOT NULL DEFAULT 0,
+  last_viewed_at TIMESTAMPTZ,
+  confirmed_at TIMESTAMPTZ,
+  confirmer_name VARCHAR(100),
+  confirmer_note TEXT,
+  created_by BIGINT REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_quote_shares_quote ON quote_shares(quote_id);
+CREATE INDEX IF NOT EXISTS idx_quote_shares_token ON quote_shares(token);
+CREATE INDEX IF NOT EXISTS idx_quote_shares_active
+  ON quote_shares(quote_id, status) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS quote_share_views (
+  id BIGSERIAL PRIMARY KEY,
+  share_id BIGINT NOT NULL REFERENCES quote_shares(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  duration_ms INT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quote_share_views_share
+  ON quote_share_views(share_id, viewed_at DESC);
+
+CREATE TABLE IF NOT EXISTS report_exports (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  created_by BIGINT NOT NULL REFERENCES users(id),
+  owner_id BIGINT REFERENCES users(id),
+  period_type VARCHAR(16) NOT NULL,
+  period_key VARCHAR(16) NOT NULL,
+  scope VARCHAR(16) NOT NULL,
+  file_name VARCHAR(300) NOT NULL,
+  -- 新流程不落盘；历史下载按 period/owner 现算。旧数据可能仍有路径
+  file_path TEXT NOT NULL DEFAULT '',
+  file_size BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_report_exports_company_created
+  ON report_exports(company_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS voice_speakers (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  name VARCHAR(100) NOT NULL,
+  slot_index SMALLINT NOT NULL,
+  sample_uri TEXT,
+  sample_mime VARCHAR(100),
+  sample_file_name VARCHAR(300),
+  sample_size_bytes BIGINT,
+  provider_speaker_id VARCHAR(200),
+  status VARCHAR(32) NOT NULL DEFAULT 'draft',
+  error_message TEXT,
+  meta JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (company_id, slot_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_speakers_company
+  ON voice_speakers (company_id, status);
+
+CREATE TABLE IF NOT EXISTS voice_synth_logs (
+  id BIGSERIAL PRIMARY KEY,
+  company_id BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+  user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  source VARCHAR(16) NOT NULL,
+  voice_speaker_id BIGINT REFERENCES voice_speakers(id) ON DELETE SET NULL,
+  official_speaker_id VARCHAR(200),
+  speaker_label VARCHAR(200),
+  icl_model_type SMALLINT,
+  status VARCHAR(16) NOT NULL DEFAULT 'success',
+  error_message TEXT,
+  text_content TEXT NOT NULL DEFAULT '',
+  text_char_count INT NOT NULL DEFAULT 0,
+  context_text TEXT,
+  duration_sec NUMERIC(10, 2),
+  audio_bytes INT,
+  saved BOOLEAN NOT NULL DEFAULT FALSE,
+  saved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_synth_logs_speaker
+  ON voice_synth_logs (voice_speaker_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_voice_synth_logs_official
+  ON voice_synth_logs (official_speaker_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_voice_synth_logs_company
+  ON voice_synth_logs (company_id, created_at DESC);

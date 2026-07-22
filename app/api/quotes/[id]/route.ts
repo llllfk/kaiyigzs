@@ -6,12 +6,18 @@ import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { writeAuditLog } from "@/lib/audit";
 import {
   canApproveQuotes,
+  getActiveQuoteShare,
+  getLatestQuoteShare,
   getQuoteSettings,
   loadQuoteItems,
   needsApproval,
   notifyQuote,
   replaceQuoteItems,
   resolveApproverId,
+  revokeAllQuoteShares,
+  serializeQuoteShareWithViews,
+  syncOpportunityAmountByQuoteId,
+  syncOpportunityAmountFromQuotes,
   type QuoteItemInput,
 } from "@/lib/quotes";
 
@@ -25,7 +31,7 @@ async function getOwnedQuote(userId: number, companyId: number, quoteId: number)
   return res.rows[0] || null;
 }
 
-export async function GET(_request: NextRequest, ctx: Ctx) {
+export async function GET(request: NextRequest, ctx: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
@@ -35,7 +41,41 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
     await assertCanAccessCustomer(user, Number(quote.customer_id));
     const items = await loadQuoteItems(id);
     const settings = await getQuoteSettings(user.company_id);
-    return jsonOk({ ...quote, items, settings });
+    const names = await pool.query(
+      `SELECT
+         (SELECT name FROM users WHERE id = $1) AS submitter_name,
+         (SELECT name FROM users WHERE id = $2) AS owner_name,
+         (SELECT name FROM users WHERE id = $3) AS approver_name,
+         (SELECT TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(company_name,''), NULLIF(name,'')))
+            FROM customers WHERE id = $4) AS customer_name,
+         (SELECT title FROM opportunities WHERE id = $5) AS opportunity_title`,
+      [
+        quote.created_by,
+        quote.owner_id,
+        quote.approver_id,
+        quote.customer_id,
+        quote.opportunity_id,
+      ]
+    );
+    const meta = names.rows[0] || {};
+    const share =
+      (await getActiveQuoteShare(id)) || (await getLatestQuoteShare(id));
+    const proto = request.headers.get("x-forwarded-proto");
+    const host =
+      request.headers.get("x-forwarded-host") || request.headers.get("host");
+    const origin =
+      proto && host ? `${proto}://${host}` : new URL(request.url).origin;
+    return jsonOk({
+      ...quote,
+      items,
+      settings,
+      share: await serializeQuoteShareWithViews(share, origin),
+      submitter_name: meta.submitter_name || meta.owner_name || null,
+      owner_name: meta.owner_name || null,
+      approver_name: meta.approver_name || null,
+      customer_name: meta.customer_name || null,
+      opportunity_title: meta.opportunity_title || null,
+    });
   } catch (err) {
     return handleApiError(err);
   }
@@ -74,6 +114,9 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
     if (Array.isArray(body.items)) {
       await replaceQuoteItems(id, body.items as QuoteItemInput[]);
+    } else {
+      // 驳回→草稿等状态变化也会影响采纳优先级
+      await syncOpportunityAmountByQuoteId(id).catch(() => null);
     }
 
     const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
@@ -92,9 +135,11 @@ export async function DELETE(_request: NextRequest, ctx: Ctx) {
     const quote = await getOwnedQuote(user.id, user.company_id, id);
     if (!quote) return jsonError("报价不存在", 404);
     await assertCanAccessCustomer(user, Number(quote.customer_id));
+    const opportunityId = Number(quote.opportunity_id);
 
     if (quote.status === "draft") {
       await pool.query(`DELETE FROM quotes WHERE id = $1`, [id]);
+      await syncOpportunityAmountFromQuotes(opportunityId).catch(() => null);
       await writeAuditLog({
         user,
         action: "quote.delete",
@@ -113,6 +158,8 @@ export async function DELETE(_request: NextRequest, ctx: Ctx) {
       `UPDATE quotes SET status = 'void', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
       [id]
     );
+    await revokeAllQuoteShares(id);
+    await syncOpportunityAmountFromQuotes(opportunityId).catch(() => null);
     await writeAuditLog({
       user,
       action: "quote.void",
@@ -170,6 +217,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
           targetId: id,
           summary: `报价 V${quote.version} 未超阈值，自动通过（合计 ${total}）`,
         });
+        await syncOpportunityAmountByQuoteId(id).catch(() => null);
         const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
         return jsonOk({
           ...fresh.rows[0],
@@ -191,12 +239,13 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         `UPDATE quotes SET
            status = 'pending_approval',
            approver_id = $1,
+           created_by = $2,
            submitted_at = CURRENT_TIMESTAMP,
            decided_at = NULL,
            reject_reason = NULL,
            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [approverId, id]
+         WHERE id = $3`,
+        [approverId, user.id, id]
       );
 
       await notifyQuote({
@@ -222,6 +271,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         [quote.opportunity_id]
       );
 
+      await syncOpportunityAmountByQuoteId(id).catch(() => null);
       const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
       return jsonOk({ ...fresh.rows[0], items, auto_approved: false });
     }
@@ -260,6 +310,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         summary: `通过报价 V${quote.version}`,
       });
 
+      await syncOpportunityAmountByQuoteId(id).catch(() => null);
       const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
       const items = await loadQuoteItems(id);
       return jsonOk({ ...fresh.rows[0], items });
@@ -303,6 +354,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         summary: `驳回报价 V${quote.version}：${reason}`,
       });
 
+      await syncOpportunityAmountByQuoteId(id).catch(() => null);
       const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
       const items = await loadQuoteItems(id);
       return jsonOk({ ...fresh.rows[0], items });
@@ -380,6 +432,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         targetId: id,
         summary: `撤回报价 V${quote.version}`,
       });
+      await syncOpportunityAmountByQuoteId(id).catch(() => null);
       const fresh = await pool.query(`SELECT * FROM quotes WHERE id = $1`, [id]);
       const items = await loadQuoteItems(id);
       return jsonOk({ ...fresh.rows[0], items });

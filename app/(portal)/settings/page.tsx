@@ -11,8 +11,8 @@ import {
   NOTIFICATION_TYPE_LABELS,
   notificationTypesForUser,
   normalizeNotificationPrefs,
-  type NotificationPrefs,
 } from "@/lib/notification-prefs";
+import { useSessionUserContext } from "@/components/shared/SessionUserContext";
 
 type PlatformEnvItem = {
   key: string;
@@ -48,10 +48,11 @@ const SOURCE_LABEL: Record<PlatformEnvItem["source"], string> = {
 export default function SettingsPage() {
   const ui = useUi();
   const router = useAppRouter();
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const { user: sessionUser, updateUser } = useSessionUserContext();
+  const [user, setUser] = useState<SessionUser>(sessionUser);
+  const [name, setName] = useState(sessionUser.name || "");
+  const [email, setEmail] = useState(sessionUser.email || "");
+  const [phone, setPhone] = useState(sessionUser.phone || "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -79,16 +80,11 @@ export default function SettingsPage() {
     user?.role === "super_admin" && !user?.act_as_company_id;
 
   async function loadMe() {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/notification-prefs");
     const json = await res.json();
     if (res.ok && json.data) {
-      const me = json.data as SessionUser & { notification_prefs?: NotificationPrefs };
-      setUser(me);
-      setName(me.name || "");
-      setEmail(me.email || "");
-      setPhone(me.phone || "");
-      const allowed = notificationTypesForUser(me);
-      setNotifPrefs(normalizeNotificationPrefs(me.notification_prefs, allowed));
+      const allowed = notificationTypesForUser(sessionUser);
+      setNotifPrefs(normalizeNotificationPrefs(json.data, allowed));
     }
   }
 
@@ -217,6 +213,7 @@ export default function SettingsPage() {
         return;
       }
       setUser(json.data);
+      updateUser(json.data);
       setName(json.data.name || "");
       setEmail(json.data.email || "");
       setPhone(json.data.phone || "");
@@ -296,7 +293,7 @@ export default function SettingsPage() {
     e.preventDefault();
     const ok = await ui.confirm({
       title: "确认保存报价规则？",
-      description: "将影响后续报价是否需要审批，以及（即将上线的）客户确认链接有效期与查看次数。",
+      description: "将影响后续报价是否需要审批，以及客户确认链接的有效期与查看次数。",
       confirmText: "保存规则",
     });
     if (!ok) return;
@@ -591,7 +588,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-base font-semibold">报价规则</h2>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
-              仅公司管理员可改。超过金额或折扣阈值需审批；链接有效期与查看次数将用于客户确认（下期上线）。
+              仅公司管理员可改。超过金额或折扣阈值需审批；客户确认链接按下方有效期与查看次数生效。
             </p>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

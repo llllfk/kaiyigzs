@@ -3,21 +3,53 @@ import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { parsePageParams, resolvePagination } from "@/lib/pagination";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
+    const sp = request.nextUrl.searchParams;
+    const { paginate, page, pageSize } = parsePageParams(sp);
+    const q = sp.get("q")?.trim() || "";
 
-    const result = await pool.query(
-      `SELECT c.*,
-        (SELECT COUNT(*)::int FROM competitor_mentions m WHERE m.competitor_id = c.id) AS mention_count
-       FROM competitors c
-       WHERE c.company_id = $1
-       ORDER BY mention_count DESC, c.updated_at DESC`,
-      [user.company_id]
+    const params: unknown[] = [user.company_id];
+    let where = `WHERE c.company_id = $1`;
+    if (q) {
+      params.push(`%${q}%`);
+      where += ` AND (
+        c.name ILIKE $${params.length}
+        OR c.summary ILIKE $${params.length}
+        OR c.playbook ILIKE $${params.length}
+      )`;
+    }
+
+    const fromSql = `FROM competitors c ${where}`;
+    const selectSql = `SELECT c.*,
+        (SELECT COUNT(*)::int FROM competitor_mentions m WHERE m.competitor_id = c.id) AS mention_count`;
+
+    if (!paginate) {
+      const result = await pool.query(
+        `${selectSql} ${fromSql} ORDER BY mention_count DESC, c.updated_at DESC`,
+        params
+      );
+      return jsonOk(result.rows);
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS total ${fromSql}`,
+      params
     );
-    return jsonOk(result.rows);
+    const total = countRes.rows[0]?.total ?? 0;
+    const { meta, offset, limit } = resolvePagination(total, page, pageSize);
+    const listParams = [...params, limit, offset];
+    const result = await pool.query(
+      `${selectSql} ${fromSql}
+       ORDER BY mention_count DESC, c.updated_at DESC
+       LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    );
+    return jsonOk(result.rows, 200, meta);
   } catch (err) {
     return handleApiError(err);
   }
@@ -67,6 +99,43 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const id = Number(body.id);
     if (!id) return jsonError("缺少 id");
+
+    const name =
+      body.name != null ? String(body.name).trim() : null;
+    if (name !== null && !name) return jsonError("竞品名称必填");
+
+    // 完整编辑：允许清空简介/优劣势/话术
+    if (name != null) {
+      const result = await pool.query(
+        `UPDATE competitors SET
+          name = $1,
+          summary = $2,
+          strengths = $3,
+          weaknesses = $4,
+          playbook = $5,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6 AND company_id = $7
+         RETURNING *`,
+        [
+          name,
+          body.summary || null,
+          body.strengths || null,
+          body.weaknesses || null,
+          body.playbook || null,
+          id,
+          user.company_id,
+        ]
+      );
+      if (!result.rows[0]) return jsonError("未找到", 404);
+      await writeAuditLog({
+        user,
+        action: "competitor.update",
+        targetType: "competitor",
+        targetId: id,
+        summary: `更新竞品 ${name}`,
+      });
+      return jsonOk(result.rows[0]);
+    }
 
     const result = await pool.query(
       `UPDATE competitors SET

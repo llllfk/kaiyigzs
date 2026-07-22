@@ -2,20 +2,37 @@ import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { parsePageParams, resolvePagination } from "@/lib/pagination";
 
 export async function GET(request: NextRequest) {
   try {
     const user = await requireSession();
-    const unreadOnly = request.nextUrl.searchParams.get("unread") === "1";
-    const result = await pool.query(
-      `SELECT * FROM notifications
-       WHERE user_id = $1
-       ${unreadOnly ? "AND read_at IS NULL" : ""}
-       ORDER BY created_at DESC
-       LIMIT 100`,
+    const sp = request.nextUrl.searchParams;
+    const unreadOnly = sp.get("unread") === "1";
+    const { paginate, page, pageSize } = parsePageParams(sp);
+    const where = `WHERE user_id = $1 ${unreadOnly ? "AND read_at IS NULL" : ""}`;
+
+    if (!paginate) {
+      const result = await pool.query(
+        `SELECT * FROM notifications ${where} ORDER BY created_at DESC LIMIT 100`,
+        [user.id]
+      );
+      return jsonOk(result.rows);
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM notifications ${where}`,
       [user.id]
     );
-    return jsonOk(result.rows);
+    const total = countRes.rows[0]?.total ?? 0;
+    const { meta, offset, limit } = resolvePagination(total, page, pageSize);
+    const result = await pool.query(
+      `SELECT * FROM notifications ${where}
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [user.id, limit, offset]
+    );
+    return jsonOk(result.rows, 200, meta);
   } catch (err) {
     return handleApiError(err);
   }

@@ -1,7 +1,9 @@
 import pool from "@/lib/db";
 import type { SessionUser } from "@/types";
+import { isNotificationEnabled } from "@/lib/notification-prefs";
 
-export async function writeAuditLog(params: {
+/** 异步写审计，不阻塞接口返回；失败只打日志，不影响业务 */
+export function writeAuditLog(params: {
   user: SessionUser | null;
   companyId?: number | null;
   action: string;
@@ -9,9 +11,9 @@ export async function writeAuditLog(params: {
   targetId?: number | string | null;
   summary?: string;
   ip?: string | null;
-}) {
-  try {
-    await pool.query(
+}): void {
+  void pool
+    .query(
       `INSERT INTO audit_logs
         (company_id, actor_id, action, target_type, target_id, summary, ip)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -24,10 +26,10 @@ export async function writeAuditLog(params: {
         params.summary ?? null,
         params.ip ?? null,
       ]
-    );
-  } catch (err) {
-    console.error("audit log failed", err);
-  }
+    )
+    .catch((err) => {
+      console.error("audit log failed", err);
+    });
 }
 
 export async function createNotification(params: {
@@ -38,6 +40,22 @@ export async function createNotification(params: {
   body?: string;
   link?: string;
 }) {
+  try {
+    const prefRes = await pool.query(
+      `SELECT role, notification_prefs FROM users WHERE id = $1 LIMIT 1`,
+      [params.userId]
+    );
+    const row = prefRes.rows[0];
+    if (
+      row &&
+      !isNotificationEnabled(row.notification_prefs, params.type, row.role)
+    ) {
+      return;
+    }
+  } catch (err) {
+    console.error("notification prefs check failed", err);
+  }
+
   await pool.query(
     `INSERT INTO notifications (company_id, user_id, type, title, body, link)
      VALUES ($1, $2, $3, $4, $5, $6)`,

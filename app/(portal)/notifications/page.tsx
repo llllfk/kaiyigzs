@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppLink } from "@/components/ui/AppLink";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
@@ -10,6 +10,7 @@ import { ListRowsSkeleton } from "@/components/ui/Skeleton";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { cn, formatDateTime, formatRelativeTime } from "@/lib/utils";
+import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
 
 type Notice = {
   id: number;
@@ -170,41 +171,70 @@ function TypeIcon({ name }: { name: (typeof TYPE_META)[string]["icon"] | "bell" 
   }
 }
 
+const NOTIFICATIONS_SEED_URL = "/api/notifications?page=1&pageSize=10";
+
 export default function NotificationsPage() {
   const ui = useUi();
   const router = useAppRouter();
-  const [list, setList] = useState<Notice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const seed = pageCachePeek<{ data?: Notice[]; meta?: PageMeta }>(NOTIFICATIONS_SEED_URL);
+  const [list, setList] = useState<Notice[]>(() => seed?.data || []);
+  const [loading, setLoading] = useState(() => seed == null);
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [meta, setMeta] = useState<PageMeta>(EMPTY_PAGE_META);
+  const [meta, setMeta] = useState<PageMeta>(seed?.meta || EMPTY_PAGE_META);
+  const hasRowsRef = useRef((seed?.data?.length || 0) > 0);
+  hasRowsRef.current = list.length > 0;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
+  const load = useCallback(
+    async (opts?: { filter?: string; page?: number; pageSize?: number; force?: boolean }) => {
+      const filterVal = opts?.filter ?? filter;
+      const p = opts?.page ?? page;
+      const size = opts?.pageSize ?? pageSize;
+      const force = opts?.force === true;
       const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(pageSize),
+        page: String(p),
+        pageSize: String(size),
       });
-      if (filter === "unread") params.set("unread", "1");
-      const res = await fetch(`/api/notifications?${params}`);
-      const json = await res.json();
-      if (res.ok) {
-        setList(json.data || []);
-        if (json.meta) {
-          setMeta(json.meta);
-          if (json.meta.page !== page) setPage(json.meta.page);
-        }
-      } else ui.error("加载通知失败", json.error);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, filter, ui]);
+      if (filterVal === "unread") params.set("unread", "1");
+      const url = `/api/notifications?${params}`;
+      const cached = pageCachePeek<{ data?: Notice[]; meta?: PageMeta }>(url);
+      if (!force && cached?.data) {
+        setList(cached.data);
+        if (cached.meta) setMeta(cached.meta);
+        setLoading(false);
+        return;
+      }
+      if (cached?.data) {
+        setList(cached.data);
+        if (cached.meta) setMeta(cached.meta);
+      }
+      const soft = hasRowsRef.current || Boolean(cached?.data);
+      if (!soft) setLoading(true);
+      try {
+        const { res, json } = await pageCacheFetchJson<{
+          data?: Notice[];
+          meta?: PageMeta;
+          error?: string;
+        }>(url, { force });
+        if (res.ok) {
+          setList(json.data || []);
+          if (json.meta) {
+            setMeta(json.meta);
+            if (json.meta.page !== p) setPage(json.meta.page);
+          }
+        } else ui.error("加载通知失败", json.error);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [page, pageSize, filter, ui]
+  );
 
   useEffect(() => {
     load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, pageSize, filter]);
 
   async function markAll() {
     const ok = await ui.confirm({
@@ -224,7 +254,7 @@ export default function NotificationsPage() {
       ui.success("已全部标为已读");
       window.dispatchEvent(new Event("crm:notifications-changed"));
       router.refresh();
-      await load();
+      await load({ force: true });
     }
   }
 
@@ -242,7 +272,7 @@ export default function NotificationsPage() {
     if (!silent) ui.success("已标为已读");
     window.dispatchEvent(new Event("crm:notifications-changed"));
     router.refresh();
-    await load();
+    await load({ force: true });
     return true;
   }
 
@@ -276,7 +306,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && list.length === 0 ? (
         <ListRowsSkeleton count={5} />
       ) : (
         <ul className="space-y-2">

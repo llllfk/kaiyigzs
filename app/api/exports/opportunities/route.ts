@@ -67,6 +67,8 @@ export async function GET(request: NextRequest) {
       : "";
     const from = sp.get("from")?.trim() || "";
     const to = sp.get("to")?.trim() || "";
+    const dateField =
+      sp.get("dateField") === "updated_at" ? "updated_at" : "created_at";
 
     const owners = await getVisibleOwnerIds(user);
     const filter = buildOwnerFilter(owners, user.company_id, "o", {
@@ -100,15 +102,16 @@ export async function GET(request: NextRequest) {
         o.title ILIKE $${params.length}
         OR c.company_name ILIKE $${params.length}
         OR c.name ILIKE $${params.length}
+        OR u.name ILIKE $${params.length}
       )`;
     }
     if (from) {
       params.push(from);
-      where += ` AND o.created_at >= $${params.length}::date`;
+      where += ` AND o.${dateField} >= $${params.length}::date`;
     }
     if (to) {
       params.push(to);
-      where += ` AND o.created_at < ($${params.length}::date + INTERVAL '1 day')`;
+      where += ` AND o.${dateField} < ($${params.length}::date + INTERVAL '1 day')`;
     }
 
     params.push(EXPORT_ROW_LIMIT);

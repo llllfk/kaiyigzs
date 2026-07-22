@@ -11,7 +11,9 @@ export type OpportunityStage =
   | "won"
   | "lost";
 
-export type TaskStatus = "pending" | "confirmed" | "done" | "cancelled";
+export type CustomerStatus = "active" | "paused" | "invalid";
+
+export type TaskStatus = "pending" | "done";
 export type TaskSource = "manual" | "ai";
 
 export interface Company {
@@ -29,8 +31,8 @@ export interface User {
   manager_id: number | null;
   role: UserRole;
   name: string;
-  email: string;
-  phone: string | null;
+  email: string | null;
+  phone: string;
   status: string;
   created_at: string;
   updated_at: string;
@@ -42,18 +44,24 @@ export interface SessionUser {
   manager_id: number | null;
   role: UserRole;
   name: string;
-  email: string;
+  email: string | null;
+  phone?: string | null;
+  /** 超级管理员进入某公司业务视图时设置 */
+  act_as_company_id?: number | null;
+  act_as_company_name?: string | null;
 }
 
 export interface Customer {
   id: number;
   company_id: number;
   owner_id: number;
+  company_name: string | null;
   name: string;
+  phone: string | null;
   industry: string | null;
   scale: string | null;
   source: string | null;
-  status: string;
+  status: CustomerStatus;
   tags: string[];
   profile_json: Record<string, unknown>;
   extra: Record<string, unknown>;
@@ -148,3 +156,50 @@ export const STAGE_LABELS: Record<OpportunityStage, string> = {
   won: "成交",
   lost: "流失",
 };
+
+export const FOLLOW_TYPE_LABELS: Record<string, string> = {
+  call: "电话",
+  wechat: "微信",
+  visit: "拜访",
+  email: "邮件",
+};
+
+export const INTENT_LABELS: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+  unknown: "未知",
+};
+
+export const SENTIMENT_LABELS: Record<string, string> = {
+  positive: "积极",
+  neutral: "中性",
+  negative: "消极",
+};
+
+export const MEDIA_KIND_LABELS: Record<string, string> = {
+  call: "通话",
+  wechat: "微信",
+};
+
+export function labelOf(map: Record<string, string>, value: unknown, fallback = "—") {
+  if (value == null || value === "") return fallback;
+  const key = String(value);
+  return map[key] || key;
+}
+
+export const CUSTOMER_STATUS_LABELS: Record<CustomerStatus, string> = {
+  active: "跟进中",
+  paused: "暂停",
+  invalid: "无效",
+};
+
+export const CUSTOMER_STATUS_OPTIONS: { value: CustomerStatus; label: string }[] = [
+  { value: "active", label: "跟进中" },
+  { value: "paused", label: "暂停" },
+  { value: "invalid", label: "无效" },
+];
+
+export function isCustomerStatus(v: unknown): v is CustomerStatus {
+  return v === "active" || v === "paused" || v === "invalid";
+}

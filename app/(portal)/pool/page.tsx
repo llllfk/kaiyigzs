@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppLink } from "@/components/ui/AppLink";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -11,6 +11,8 @@ import { customerLabel } from "@/lib/utils";
 import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { ROLE_LABELS, type UserRole } from "@/types";
 import { CardListSkeleton } from "@/components/ui/Skeleton";
+import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { useSessionUser } from "@/components/shared/SessionUserContext";
 
 type PoolItem = {
   id: number;
@@ -24,17 +26,34 @@ type PoolItem = {
 
 type TeamUser = { id: number; name: string; role: string };
 
+type PoolCachePayload = {
+  data?: {
+    items?: PoolItem[];
+    total?: number;
+    recycle_days?: number;
+    recycled_just_now?: number;
+    can_assign?: boolean;
+  };
+  meta?: PageMeta;
+};
+
+const POOL_SEED_URL = "/api/pool?page=1&pageSize=10";
+
 export default function PoolPage() {
   const ui = useUi();
-  const [items, setItems] = useState<PoolItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [total, setTotal] = useState(0);
+  const sessionUser = useSessionUser();
+  const seed = pageCachePeek<PoolCachePayload>(POOL_SEED_URL);
+  const [items, setItems] = useState<PoolItem[]>(() => seed?.data?.items || []);
+  const [loading, setLoading] = useState(() => seed == null);
+  const [total, setTotal] = useState(() => Number(seed?.data?.total ?? seed?.data?.items?.length ?? 0));
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [meta, setMeta] = useState<PageMeta>(EMPTY_PAGE_META);
-  const [days, setDays] = useState(7);
-  const [recycled, setRecycled] = useState(0);
-  const [canAssign, setCanAssign] = useState(false);
+  const [meta, setMeta] = useState<PageMeta>(seed?.meta || EMPTY_PAGE_META);
+  const [days, setDays] = useState(() => seed?.data?.recycle_days || 7);
+  const [recycled, setRecycled] = useState(() => seed?.data?.recycled_just_now || 0);
+  const [canAssign, setCanAssign] = useState(() => Boolean(seed?.data?.can_assign));
+  const hasRowsRef = useRef((seed?.data?.items?.length || 0) > 0);
+  hasRowsRef.current = items.length > 0;
   const [team, setTeam] = useState<TeamUser[]>([]);
   const [q, setQ] = useState("");
   const [assignTarget, setAssignTarget] = useState<PoolItem | null>(null);
@@ -42,28 +61,52 @@ export default function PoolPage() {
   const [assigning, setAssigning] = useState(false);
 
   const load = useCallback(
-    async (opts?: { keyword?: string; page?: number; pageSize?: number }) => {
+    async (opts?: { keyword?: string; page?: number; pageSize?: number; force?: boolean }) => {
       const keyword = opts?.keyword ?? q;
       const p = opts?.page ?? page;
       const size = opts?.pageSize ?? pageSize;
-      setLoading(true);
+      const force = opts?.force === true;
+      const params = new URLSearchParams({
+        q: keyword,
+        page: String(p),
+        pageSize: String(size),
+      });
+      const url = `/api/pool?${params}`;
+      const cached = pageCachePeek<PoolCachePayload>(url);
+      if (!force && cached?.data?.items) {
+        setItems(cached.data.items);
+        setTotal(Number(cached.data.total ?? cached.data.items.length ?? 0));
+        if (cached.data.recycle_days != null) setDays(cached.data.recycle_days);
+        if (cached.data.recycled_just_now != null) setRecycled(cached.data.recycled_just_now);
+        if (cached.data.can_assign != null) setCanAssign(Boolean(cached.data.can_assign));
+        if (cached.meta) setMeta(cached.meta);
+        setLoading(false);
+        return;
+      }
+      if (cached?.data?.items) {
+        setItems(cached.data.items);
+        setTotal(Number(cached.data.total ?? cached.data.items.length ?? 0));
+        if (cached.data.recycle_days != null) setDays(cached.data.recycle_days);
+        if (cached.data.recycled_just_now != null) setRecycled(cached.data.recycled_just_now);
+        if (cached.data.can_assign != null) setCanAssign(Boolean(cached.data.can_assign));
+        if (cached.meta) setMeta(cached.meta);
+      }
+      const soft = hasRowsRef.current || Boolean(cached?.data?.items);
+      if (!soft) setLoading(true);
       try {
-        const params = new URLSearchParams({
-          q: keyword,
-          page: String(p),
-          pageSize: String(size),
-        });
-        const res = await fetch(`/api/pool?${params}`);
-        const json = await res.json();
+        const { res, json } = await pageCacheFetchJson<PoolCachePayload & { error?: string }>(
+          url,
+          { force }
+        );
         if (!res.ok) {
           ui.error("加载公海失败", json.error);
           return;
         }
-        setItems(json.data.items || []);
-        setTotal(Number(json.data.total ?? json.data.items?.length ?? 0));
-        setDays(json.data.recycle_days || 7);
-        setRecycled(json.data.recycled_just_now || 0);
-        setCanAssign(Boolean(json.data.can_assign));
+        setItems(json.data?.items || []);
+        setTotal(Number(json.data?.total ?? json.data?.items?.length ?? 0));
+        setDays(json.data?.recycle_days || 7);
+        setRecycled(json.data?.recycled_just_now || 0);
+        setCanAssign(Boolean(json.data?.can_assign));
         if (json.meta) {
           setMeta(json.meta);
           if (json.meta.page !== p) setPage(json.meta.page);
@@ -76,10 +119,10 @@ export default function PoolPage() {
   );
 
   useEffect(() => {
-    Promise.all([fetch("/api/users"), fetch("/api/auth/me")])
-      .then(async ([usersRes, meRes]) => {
-        const [usersJson, meJson] = await Promise.all([usersRes.json(), meRes.json()]);
-        const myId = meJson.data?.id != null ? Number(meJson.data.id) : NaN;
+    fetch("/api/users")
+      .then(async (usersRes) => {
+        const usersJson = await usersRes.json();
+        const myId = Number(sessionUser.id);
         if (usersJson.data) {
           setTeam(
             usersJson.data.filter((u: TeamUser) => {
@@ -95,8 +138,7 @@ export default function PoolPage() {
         }
       })
       .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sessionUser.id]);
 
   useEffect(() => {
     load();
@@ -104,7 +146,7 @@ export default function PoolPage() {
   }, [page, pageSize]);
 
   function onSearch() {
-    if (page === 1) load({ keyword: q, page: 1 });
+    if (page === 1) load({ keyword: q, page: 1, force: true });
     else setPage(1);
   }
 
@@ -124,7 +166,7 @@ export default function PoolPage() {
     if (!res.ok) ui.error("领取失败", json.error);
     else {
       ui.success("领取成功", "客户已进入你的私海");
-      await load();
+      await load({ force: true });
     }
   }
 
@@ -165,7 +207,7 @@ export default function PoolPage() {
       ui.success("分配成功", `已分配给 ${target?.name || "所选销售"}`);
       setAssignTarget(null);
       setAssignOwner("");
-      await load();
+      await load({ force: true });
     } finally {
       setAssigning(false);
     }
@@ -188,7 +230,7 @@ export default function PoolPage() {
     if (!res.ok) ui.error("回收失败", json.error);
     else {
       ui.success("回收完成", `共回收 ${json.data?.recycled || 0} 个客户`);
-      await load();
+      await load({ force: true });
     }
   }
 
@@ -238,15 +280,16 @@ export default function PoolPage() {
       <div
         className={`pool-card-grid grid w-full gap-3 grid-cols-1${items.length >= 2 ? " sm:grid-cols-2" : ""}`}
         style={{
-          ["--pool-cols" as string]: String(Math.min(4, Math.max(1, items.length || 1))),
+          ["--pool-cols" as string]: String(Math.min(2, Math.max(1, items.length || 1))),
         }}
       >
-        {loading && <CardListSkeleton count={4} className="col-span-full sm:grid-cols-2" />}
-        {!loading && items.length === 0 && (
+        {loading && items.length === 0 && (
+          <CardListSkeleton count={4} className="col-span-full sm:grid-cols-2" />
+        )}
+        {items.length === 0 && !loading && (
           <div className="text-sm text-[var(--color-muted)]">暂无公海客户</div>
         )}
-        {!loading &&
-          items.map((c) => (
+        {items.map((c) => (
           <div
             key={c.id}
             className="surface card-interactive relative h-full w-full p-4"

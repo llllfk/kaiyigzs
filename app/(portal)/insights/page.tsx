@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppLink } from "@/components/ui/AppLink";
-import { Button } from "@/components/ui/Button";
 import { INTENT_LABELS, MEDIA_KIND_LABELS, labelOf } from "@/types";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { FollowTypeTag } from "@/components/ui/FollowTypeTag";
 import { InsightsSkeleton } from "@/components/ui/Skeleton";
-import { useUi } from "@/components/ui/Feedback";
-import { downloadExport, exportStamp } from "@/lib/download-export";
+import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { TruncateWithDelayTip } from "@/components/ui/DelayedTooltip";
 
 type KV = { key: string; value: number; reason?: string };
 
@@ -32,42 +31,39 @@ type Summary = {
   upload_stats: KV[];
 };
 
-export default function InsightsPage() {
-  const ui = useUi();
-  const [data, setData] = useState<Summary | null>(null);
-  const [error, setError] = useState("");
-  const [exporting, setExporting] = useState<string | null>(null);
+const INSIGHTS_SEED_URL = "/api/insights/summary";
 
-  useEffect(() => {
-    fetch("/api/insights/summary")
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.error) setError(j.error);
-        else setData(j.data);
-      })
-      .catch(() => setError("加载失败"));
+export default function InsightsPage() {
+  const seed = pageCachePeek<{ data?: Summary; error?: string }>(INSIGHTS_SEED_URL);
+  const [data, setData] = useState<Summary | null>(() => seed?.data || null);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async (force?: boolean) => {
+    const url = INSIGHTS_SEED_URL;
+    const cached = pageCachePeek<{ data?: Summary }>(url);
+    if (!force && cached?.data) {
+      setData(cached.data);
+      setError("");
+      return;
+    }
+    if (cached?.data) setData(cached.data);
+    try {
+      const { res, json } = await pageCacheFetchJson<{ data?: Summary; error?: string }>(url, {
+        force: force === true,
+      });
+      if (!res.ok || json.error) setError(json.error || "加载失败");
+      else {
+        setError("");
+        setData(json.data || null);
+      }
+    } catch {
+      setError("加载失败");
+    }
   }, []);
 
-  async function exportKind(kind: "customers" | "opportunities" | "follow-ups", label: string) {
-    if (exporting) return;
-    setExporting(kind);
-    try {
-      const names = {
-        customers: "客户",
-        opportunities: "商机",
-        "follow-ups": "跟进",
-      } as const;
-      await downloadExport(
-        `/api/exports/${kind}`,
-        `${names[kind]}导出-${exportStamp()}.csv`
-      );
-      ui.success(`已导出${label} CSV`);
-    } catch (err) {
-      ui.error("导出失败", err instanceof Error ? err.message : undefined);
-    } finally {
-      setExporting(null);
-    }
-  }
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   if (error) {
     return <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>;
@@ -90,40 +86,6 @@ export default function InsightsPage() {
         </p>
       </div>
 
-      <div className="surface p-4 md:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-semibold">报表导出</h2>
-            <p className="mt-0.5 text-xs text-[var(--color-muted)]">
-              按当前权限范围导出 CSV（最多 5000 条），便于汇报与归档
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              disabled={Boolean(exporting)}
-              onClick={() => void exportKind("customers", "客户")}
-            >
-              {exporting === "customers" ? "导出中…" : "导出客户"}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={Boolean(exporting)}
-              onClick={() => void exportKind("opportunities", "商机")}
-            >
-              {exporting === "opportunities" ? "导出中…" : "导出商机"}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={Boolean(exporting)}
-              onClick={() => void exportKind("follow-ups", "跟进")}
-            >
-              {exporting === "follow-ups" ? "导出中…" : "导出跟进"}
-            </Button>
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="客户意向分布">
           {data.intent_distribution.length === 0 && <Empty />}
@@ -140,14 +102,19 @@ export default function InsightsPage() {
         <Panel title="高频痛点">
           {data.pain_points.length === 0 && <Empty tip="上传沟通记录并解析后可见" />}
           <div className="flex flex-wrap gap-2">
-            {data.pain_points.map((r) => (
-              <span
-                key={r.key}
-                className="rounded-md bg-slate-100 px-2.5 py-1 text-sm"
-              >
-                {r.key} · {r.value}
-              </span>
-            ))}
+            {data.pain_points.map((r) => {
+              const label = `${r.value} · ${r.key}`;
+              return (
+                <TruncateWithDelayTip
+                  key={r.key}
+                  text={label}
+                  delayMs={280}
+                  placement="up"
+                  tabIndex={0}
+                  className="inline-block max-w-[14rem] rounded-md bg-slate-100 px-2.5 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]/35"
+                />
+              );
+            })}
           </div>
         </Panel>
 

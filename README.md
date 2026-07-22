@@ -11,28 +11,54 @@ Coze 兼容的 Next.js 15 销售客户关系管理平台（风格 A：专业深�
 
 ## 本地启动
 
-1. 复制环境变量：
+> 推荐使用本机 PostgreSQL，**不需要 Docker**。
+
+### 1. 数据库（本机 PostgreSQL 16）
+
+本仓库已配置为连接：
+
+```
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/sales_crm
+```
+
+数据目录：`C:\Users\Administrator\pgdata-sales-crm`
+
+启动 / 停止数据库：
+
+```bat
+scripts\pg-start.bat
+scripts\pg-stop.bat
+```
+
+一键启动（若 PostgreSQL / 3001 端口已在运行会先关闭再启动）：
+
+```bat
+scripts\dev-start.bat
+```
+
+（内部调用 `scripts\dev-start.ps1`，控制台使用 UTF-8，避免中文乱码）
+
+### 2. 应用
 
 ```bash
 copy .env.local.example .env.local
-```
-
-2. 创建数据库并初始化表与超管：
-
-```bash
 npm install
 npm run db:init
-```
-
-3. 开发：
-
-```bash
 npm run dev
 ```
 
-默认超管：`admin@kaiyi.local` / `Admin123!`
+打开：http://localhost:3001
+
+默认超管：手机号 `13800000001` / `Admin123!`（也可用邮箱 `admin@kaiyi.local`）
 
 登录后可在「公司管理」创建公司并指定公司管理员。
+
+### 3. 按公司绑定 AI 智能体
+
+- **API Key**：全局共用，写在 `.env.local`
+- **智能体 / 知识库**：每家公司单独配置，超管在 **公司管理 → AI 配置** 中填写
+
+未绑定的公司会回退到系统默认配置（仅适合演示）。
 
 ## 已实现（P0）
 

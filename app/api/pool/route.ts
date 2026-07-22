@@ -5,6 +5,7 @@ import {
   claimCustomerFromPool,
   releaseCustomerToPool,
   recycleStaleCustomers,
+  maybeAutoRecycleStaleCustomers,
   getPoolRecycleDays,
   canAssignPool,
 } from "@/lib/pool";
@@ -16,8 +17,8 @@ export async function GET(request: NextRequest) {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
 
-    // auto recycle on list view
-    const recycle = await recycleStaleCustomers(user.company_id);
+    // 自动回收不阻塞列表：限流后后台执行，避免导航被扫库拖住
+    void maybeAutoRecycleStaleCustomers(user.company_id).catch(() => undefined);
     const days = await getPoolRecycleDays(user.company_id);
     const sp = request.nextUrl.searchParams;
     const q = sp.get("q")?.trim() || "";
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     if (!paginate) {
       const result = await pool.query(
         `${selectSql} ${fromSql}
-         ORDER BY c.released_at DESC NULLS LAST, c.updated_at DESC
+         ORDER BY c.created_at DESC
          LIMIT 200`,
         params
       );
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest) {
       const listParams = [...params, resolved.limit, resolved.offset];
       const result = await pool.query(
         `${selectSql} ${fromSql}
-         ORDER BY c.released_at DESC NULLS LAST, c.updated_at DESC
+         ORDER BY c.created_at DESC
          LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
         listParams
       );
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
         items,
         total,
         recycle_days: days,
-        recycled_just_now: recycle.recycled,
+        recycled_just_now: 0,
         can_assign: canAssignPool(user),
       },
       200,

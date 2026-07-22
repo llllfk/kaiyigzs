@@ -11,11 +11,22 @@ import { cn } from "@/lib/utils";
 import { useUi } from "@/components/ui/Feedback";
 import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { FileDropzone } from "@/components/ui/FileDropzone";
+import { KnowledgeSkeleton } from "@/components/ui/Skeleton";
+import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { useSessionUser } from "@/components/shared/SessionUserContext";
 import {
   AiThinkingIndicator,
   formatAiDuration,
 } from "@/components/ai/AiThinkingIndicator";
-import { AiMessageContent } from "@/components/ai/AiMessageContent";
+import dynamic from "next/dynamic";
+
+const AiMessageContent = dynamic(
+  () =>
+    import("@/components/ai/AiMessageContent").then(
+      (module) => module.AiMessageContent
+    ),
+  { ssr: false }
+);
 import {
   COZE_DATASET_TYPE_LABELS,
   COZE_UPLOAD_LIMITS,
@@ -44,11 +55,7 @@ type KbFile = {
   coze_sync_error?: string | null;
 };
 
-type Me = {
-  id: number;
-  role: string;
-  act_as_company_id?: number | null;
-};
+const FOLDERS_URL = "/api/knowledge/folders";
 
 function buildTree(folders: Folder[]) {
   const map = new Map<number | null, Folder[]>();
@@ -61,19 +68,25 @@ function buildTree(folders: Folder[]) {
 }
 
 export default function KnowledgePage() {
+  const me = useSessionUser();
   const ui = useUi();
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const foldersSeed = pageCachePeek<{ data?: Folder[] }>(FOLDERS_URL);
+  const [folders, setFolders] = useState<Folder[]>(
+    () => foldersSeed?.data || []
+  );
   const [files, setFiles] = useState<KbFile[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [fileMeta, setFileMeta] = useState<PageMeta>(EMPTY_PAGE_META);
   const [filesLoading, setFilesLoading] = useState(false);
-  const [activeId, setActiveId] = useState<number | null>(null);
+  const [pageLoading, setPageLoading] = useState(() => !foldersSeed?.data);
+  const [activeId, setActiveId] = useState<number | null>(() =>
+    foldersSeed?.data?.[0]?.id ?? null
+  );
   const [newFolder, setNewFolder] = useState("");
   const [folderOpen, setFolderOpen] = useState(false);
   /** null = create root folder; number = create under that parent */
   const [folderParentId, setFolderParentId] = useState<number | null>(null);
-  const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [question, setQuestion] = useState("");
@@ -136,18 +149,20 @@ export default function KnowledgePage() {
   }
 
   async function loadFolders() {
-    const [fRes, meRes] = await Promise.all([
-      fetch("/api/knowledge/folders"),
-      fetch("/api/auth/me"),
-    ]);
-    const fJson = await fRes.json();
-    const meJson = await meRes.json();
-    if (!fRes.ok) setError(fJson.error || "加载目录失败");
-    else {
-      setFolders(fJson.data || []);
-      if (!activeId && fJson.data?.[0]) setActiveId(fJson.data[0].id);
+    try {
+      const { res: fRes, json: fJson } = await pageCacheFetchJson<{
+        data?: Folder[];
+        error?: string;
+      }>(FOLDERS_URL);
+      if (!fRes.ok) setError(fJson.error || "加载目录失败");
+      else {
+        const rows = fJson.data || [];
+        setFolders(rows);
+        setActiveId((prev) => prev ?? rows[0]?.id ?? null);
+      }
+    } finally {
+      setPageLoading(false);
     }
-    if (meRes.ok) setMe(meJson.data);
   }
 
   async function loadFiles(
@@ -719,6 +734,10 @@ export default function KnowledgePage() {
 
   return (
     <div className="flex flex-col gap-4 xl:h-[calc(100dvh-6.5rem)] xl:max-h-[calc(100dvh-6.5rem)] xl:min-h-0 xl:overflow-hidden">
+      {pageLoading ? (
+        <KnowledgeSkeleton />
+      ) : (
+      <>
       <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">知识库</h1>
@@ -1237,6 +1256,8 @@ export default function KnowledgePage() {
           </div>
         </form>
       </Modal>
+      </>
+      )}
     </div>
   );
 }

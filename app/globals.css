@@ -111,6 +111,12 @@ textarea {
     border-color 0.2s ease;
 }
 
+/* 网格内等高卡片（如报价卡片视图） */
+.card-interactive.card-stretch {
+  height: 100%;
+  align-self: stretch;
+}
+
 .card-interactive:hover,
 .card-interactive:focus-within {
   transform: translateY(-2px);
@@ -133,8 +139,8 @@ textarea {
 .card-interactive .card-actions {
   position: absolute;
   right: 0.75rem;
-  bottom: 0.75rem;
-  top: auto;
+  top: 0.75rem;
+  bottom: auto;
   z-index: 2;
   display: flex;
   flex-direction: row;
@@ -144,7 +150,7 @@ textarea {
   gap: 0.375rem;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(2px);
+  transform: translateY(-2px);
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
@@ -270,6 +276,18 @@ a.hero-btn-ghost:hover {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+.input:disabled {
+  cursor: not-allowed;
+  background: #f1f5f9;
+  color: var(--color-muted);
+  opacity: 0.85;
+  box-shadow: none;
+}
+
+.input:disabled::placeholder {
+  color: #94a3b8;
+}
+
 .textarea {
   min-height: 96px;
   resize: vertical;
@@ -293,6 +311,33 @@ a.hero-btn-ghost:hover {
 .text-link:focus-visible {
   color: var(--color-accent-hover);
   outline: none;
+}
+
+/* 平台音色：公司名筛选入口（需压过 button { font: inherit }） */
+.company-filter-link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-text);
+  text-align: left;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.company-filter-link:hover,
+.company-filter-link:focus-visible {
+  color: var(--color-accent);
+  outline: none;
+}
+
+.company-filter-link.is-active {
+  color: var(--color-accent);
 }
 
 .table-row-link {
@@ -457,10 +502,10 @@ a.hero-btn-ghost:hover {
   color: var(--color-muted);
 }
 
-/* 公海卡片：按数量均分一行（最多 4 列） */
+/* 公海卡片：按数量均分一行（最多 2 列） */
 @media (min-width: 1024px) {
   .pool-card-grid {
-    grid-template-columns: repeat(var(--pool-cols, 4), minmax(0, 1fr));
+    grid-template-columns: repeat(var(--pool-cols, 2), minmax(0, 1fr));
   }
 }
 

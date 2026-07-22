@@ -9,14 +9,11 @@ import {
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { writeAuditLog } from "@/lib/audit";
 import {
-  getQuoteSettings,
   loadQuoteItems,
-  needsApproval,
-  notifyQuote,
   replaceQuoteItems,
-  resolveApproverId,
   type QuoteItemInput,
 } from "@/lib/quotes";
+import { parsePageParams, resolvePagination } from "@/lib/pagination";
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,34 +24,56 @@ export async function GET(request: NextRequest) {
     const scope = sp.get("scope") || "mine"; // mine | pending | opportunity
     const opportunityId = sp.get("opportunity_id");
     const owners = await getVisibleOwnerIds(user);
+    const { paginate, page, pageSize } = parsePageParams(sp, { always: true });
 
     if (scope === "pending") {
-      const result = await pool.query(
-        `SELECT q.*,
-                o.title AS opportunity_title,
-                TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
-                u.name AS owner_name,
-                a.name AS approver_name
-         FROM quotes q
+      const whereSql = `q.company_id = $1
+           AND q.status = 'pending_approval'
+           AND (q.approver_id = $2 OR $3::boolean)`;
+      const baseParams = [
+        user.company_id,
+        user.id,
+        user.role === "company_admin" || Boolean(user.act_as_company_id),
+      ];
+      const fromSql = `FROM quotes q
          JOIN opportunities o ON o.id = q.opportunity_id
          JOIN customers c ON c.id = q.customer_id
          LEFT JOIN users u ON u.id = q.owner_id
          LEFT JOIN users a ON a.id = q.approver_id
-         WHERE q.company_id = $1
-           AND q.status = 'pending_approval'
-           AND (q.approver_id = $2 OR $3::boolean)
-         ORDER BY q.submitted_at DESC NULLS LAST, q.id DESC
-         LIMIT 200`,
-        [
-          user.company_id,
-          user.id,
-          user.role === "company_admin" || Boolean(user.act_as_company_id),
-        ]
+         LEFT JOIN users s ON s.id = q.created_by
+         WHERE ${whereSql}`;
+      const selectSql = `SELECT q.*,
+                o.title AS opportunity_title,
+                TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+                u.name AS owner_name,
+                a.name AS approver_name,
+                COALESCE(s.name, u.name) AS submitter_name`;
+
+      if (!paginate) {
+        const result = await pool.query(
+          `${selectSql} ${fromSql} ORDER BY q.submitted_at DESC NULLS LAST, q.id DESC LIMIT 200`,
+          baseParams
+        );
+        return jsonOk(result.rows);
+      }
+
+      const countRes = await pool.query(
+        `SELECT COUNT(*)::int AS total ${fromSql}`,
+        baseParams
       );
-      return jsonOk(result.rows);
+      const total = countRes.rows[0]?.total ?? 0;
+      const { meta, offset, limit } = resolvePagination(total, page, pageSize);
+      const listParams = [...baseParams, limit, offset];
+      const result = await pool.query(
+        `${selectSql} ${fromSql}
+         ORDER BY q.submitted_at DESC NULLS LAST, q.id DESC
+         LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+        listParams
+      );
+      return jsonOk(result.rows, 200, meta);
     }
 
-    if (opportunityId) {
+    if (scope === "opportunity" && opportunityId) {
       const opp = await pool.query(
         `SELECT id, customer_id, owner_id FROM opportunities WHERE id = $1 AND company_id = $2`,
         [Number(opportunityId), user.company_id]
@@ -72,7 +91,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN users u ON u.id = q.owner_id
          LEFT JOIN users a ON a.id = q.approver_id
          WHERE q.opportunity_id = $1 AND q.company_id = $2
-         ORDER BY q.version DESC, q.id DESC`,
+         ORDER BY q.updated_at DESC NULLS LAST, q.id DESC`,
         [Number(opportunityId), user.company_id]
       );
       return jsonOk(result.rows);
@@ -81,23 +100,70 @@ export async function GET(request: NextRequest) {
     const filter = buildOwnerFilter(owners, user.company_id, "q", {
       includePoolStatus: false,
     });
-    const result = await pool.query(
-      `SELECT q.*,
-              o.title AS opportunity_title,
-              TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
-              u.name AS owner_name,
-              a.name AS approver_name
-       FROM quotes q
+    const status = String(sp.get("status") || "").trim();
+    const customerQ = String(sp.get("customer_q") || "").trim();
+    const opportunityIdFilter = Number(sp.get("opportunity_id") || 0);
+    const opportunityQ = String(sp.get("opportunity_q") || "").trim();
+
+    const whereParts = [filter.sql];
+    const params = [...filter.params];
+
+    if (status) {
+      params.push(status);
+      whereParts.push(`q.status = $${params.length}`);
+    }
+    if (customerQ) {
+      params.push(`%${customerQ}%`);
+      whereParts.push(
+        `(c.name ILIKE $${params.length} OR c.company_name ILIKE $${params.length})`
+      );
+    }
+    if (opportunityIdFilter > 0) {
+      params.push(opportunityIdFilter);
+      whereParts.push(`q.opportunity_id = $${params.length}`);
+    } else if (opportunityQ) {
+      params.push(`%${opportunityQ}%`);
+      whereParts.push(`o.title ILIKE $${params.length}`);
+    }
+
+    const fromSql = `FROM quotes q
        JOIN opportunities o ON o.id = q.opportunity_id
        JOIN customers c ON c.id = q.customer_id
        LEFT JOIN users u ON u.id = q.owner_id
        LEFT JOIN users a ON a.id = q.approver_id
-       WHERE ${filter.sql}
-       ORDER BY q.updated_at DESC
-       LIMIT 200`,
-      filter.params
+       WHERE ${whereParts.join(" AND ")}`;
+    const selectSql = `SELECT q.*,
+              o.title AS opportunity_title,
+              TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+              u.name AS owner_name,
+              a.name AS approver_name,
+              COALESCE(
+                (SELECT name FROM users WHERE id = q.created_by),
+                u.name
+              ) AS submitter_name`;
+
+    if (!paginate) {
+      const result = await pool.query(
+        `${selectSql} ${fromSql} ORDER BY q.updated_at DESC LIMIT 200`,
+        params
+      );
+      return jsonOk(result.rows);
+    }
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*)::int AS total ${fromSql}`,
+      params
     );
-    return jsonOk(result.rows);
+    const total = countRes.rows[0]?.total ?? 0;
+    const { meta, offset, limit } = resolvePagination(total, page, pageSize);
+    const listParams = [...params, limit, offset];
+    const result = await pool.query(
+      `${selectSql} ${fromSql}
+       ORDER BY q.updated_at DESC
+       LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    );
+    return jsonOk(result.rows, 200, meta);
   } catch (err) {
     return handleApiError(err);
   }

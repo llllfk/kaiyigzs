@@ -1,0 +1,2 @@
+import pool from "@/lib/db"; import { requireSession } from "@/lib/auth"; import { handleApiError,jsonOk } from "@/lib/api"; import { crmRole } from "@/lib/permissions";
+export async function GET(){try{const user=await requireSession();if(crmRole(user)==="sales")return jsonOk([{id:user.id,name:user.name}]);const r=await pool.query(`SELECT id,name,role FROM users WHERE company_id=$1 AND status='active' AND role IN ('sales','sales_manager') ORDER BY name`,[user.company_id]);return jsonOk(r.rows);}catch(e){return handleApiError(e);}}

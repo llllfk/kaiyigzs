@@ -26,7 +26,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
 
 export const NOTIFICATION_TYPE_HINTS: Record<NotificationType, string> = {
   ai_done: "通话/聊天解析完成时通知",
-  task: "AI 或系统生成待办时通知",
+  task: "AI 生成待办，或管理员/经理催办时通知",
   stage_suggestion: "AI 建议推进商机阶段时通知",
   review: "赢单/输单后的复盘提醒",
   pool: "公海领取、回收等相关通知",

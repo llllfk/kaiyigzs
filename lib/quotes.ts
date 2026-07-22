@@ -3,11 +3,13 @@ import { AuthError } from "@/lib/auth";
 import type { SessionUser } from "@/types";
 import { crmRole } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
+import { randomBytes } from "crypto";
 
 export const QUOTE_STATUSES = [
   "draft",
   "pending_approval",
   "approved",
+  "confirmed",
   "rejected",
   "void",
 ] as const;
@@ -18,6 +20,7 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   draft: "草稿",
   pending_approval: "待审批",
   approved: "已通过",
+  confirmed: "客户已确认",
   rejected: "已驳回",
   void: "已作废",
 };
@@ -283,15 +286,80 @@ export async function replaceQuoteItems(quoteId: number, items: QuoteItemInput[]
     client.release();
   }
 
+  await syncOpportunityAmountByQuoteId(quoteId).catch(() => null);
+
   return { listTotal, total, maxDiscount };
+}
+
+/**
+ * 按优先级把商机金额同步为报价合计：
+ * 客户已确认 > 已通过 > 待审批 > 草稿（忽略作废/驳回）
+ * 同优先级取 updated_at 最新；无有效报价时不改动原金额（保留预估）。
+ */
+export async function syncOpportunityAmountFromQuotes(
+  opportunityId: number
+): Promise<{
+  amount: number | null;
+  quoteId: number | null;
+  status: string | null;
+} | null> {
+  const oid = Number(opportunityId);
+  if (!oid) return null;
+
+  const res = await pool.query(
+    `SELECT id, total, status
+     FROM quotes
+     WHERE opportunity_id = $1
+       AND status NOT IN ('void', 'rejected')
+     ORDER BY
+       CASE status
+         WHEN 'confirmed' THEN 1
+         WHEN 'approved' THEN 2
+         WHEN 'pending_approval' THEN 3
+         WHEN 'draft' THEN 4
+         ELSE 5
+       END,
+       updated_at DESC NULLS LAST,
+       id DESC
+     LIMIT 1`,
+    [oid]
+  );
+  const row = res.rows[0];
+  if (!row) {
+    return { amount: null, quoteId: null, status: null };
+  }
+
+  const amount = Number(row.total);
+  const safe = Number.isFinite(amount) ? amount : null;
+  await pool.query(
+    `UPDATE opportunities
+     SET amount = $1, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2`,
+    [safe, oid]
+  );
+  return {
+    amount: safe,
+    quoteId: Number(row.id),
+    status: String(row.status),
+  };
+}
+
+export async function syncOpportunityAmountByQuoteId(quoteId: number) {
+  const res = await pool.query(
+    `SELECT opportunity_id FROM quotes WHERE id = $1`,
+    [quoteId]
+  );
+  const oid = Number(res.rows[0]?.opportunity_id);
+  if (!oid) return null;
+  return syncOpportunityAmountFromQuotes(oid);
 }
 
 export async function notifyQuote(params: {
   companyId: number;
   userId: number;
+  quoteId: number;
   title: string;
   body: string;
-  quoteId: number;
 }) {
   await createNotification({
     companyId: params.companyId,
@@ -302,3 +370,524 @@ export async function notifyQuote(params: {
     link: `/quotes?id=${params.quoteId}`,
   });
 }
+
+export type QuoteShareRow = {
+  id: number;
+  quote_id: number;
+  company_id: number;
+  token: string;
+  status: string;
+  expires_at: string;
+  max_views: number;
+  view_count: number;
+  last_viewed_at: string | null;
+  confirmed_at: string | null;
+  confirmer_name: string | null;
+  confirmer_note: string | null;
+  created_by: number | null;
+  created_at: string;
+  revoked_at: string | null;
+};
+
+function newShareToken() {
+  return randomBytes(24).toString("base64url");
+}
+
+export function sharePublicPath(token: string) {
+  return `/q/${token}`;
+}
+
+export async function getActiveQuoteShare(quoteId: number) {
+  const res = await pool.query(
+    `SELECT * FROM quote_shares
+     WHERE quote_id = $1 AND status = 'active'
+     ORDER BY id DESC LIMIT 1`,
+    [quoteId]
+  );
+  return (res.rows[0] as QuoteShareRow | undefined) || null;
+}
+
+export async function getLatestQuoteShare(quoteId: number) {
+  const res = await pool.query(
+    `SELECT * FROM quote_shares WHERE quote_id = $1 ORDER BY id DESC LIMIT 1`,
+    [quoteId]
+  );
+  return (res.rows[0] as QuoteShareRow | undefined) || null;
+}
+
+export function serializeQuoteShare(
+  share: QuoteShareRow | null,
+  origin?: string | null,
+  views?: QuoteShareViewRow[]
+) {
+  if (!share) return null;
+  const path = sharePublicPath(share.token);
+  const url = origin ? `${origin.replace(/\/$/, "")}${path}` : path;
+  const expired = new Date(share.expires_at).getTime() <= Date.now();
+  const viewsExhausted =
+    !share.confirmed_at && Number(share.view_count) >= Number(share.max_views);
+  const viewRows = views || [];
+  return {
+    id: share.id,
+    token: share.token,
+    status: share.status,
+    path,
+    url,
+    expires_at: share.expires_at,
+    max_views: Number(share.max_views),
+    view_count: Number(share.view_count),
+    last_viewed_at: share.last_viewed_at,
+    /** @deprecated 兼容旧字段，优先用 views */
+    view_times: viewRows.map((v) => v.viewed_at),
+    views: viewRows,
+    confirmed_at: share.confirmed_at,
+    confirmer_name: share.confirmer_name,
+    confirmer_note: share.confirmer_note,
+    created_at: share.created_at,
+    revoked_at: share.revoked_at,
+    expired,
+    views_exhausted: viewsExhausted,
+    usable:
+      share.status === "active" &&
+      !expired &&
+      (!viewsExhausted || Boolean(share.confirmed_at)),
+  };
+}
+
+export type QuoteShareViewRow = {
+  id: number;
+  viewed_at: string;
+  duration_ms: number | null;
+};
+
+export async function listQuoteShareViews(shareId: number, limit = 50) {
+  const res = await pool.query(
+    `SELECT id, viewed_at, duration_ms FROM quote_share_views
+     WHERE share_id = $1
+     ORDER BY viewed_at DESC, id DESC
+     LIMIT $2`,
+    [shareId, limit]
+  );
+  return res.rows.map(
+    (r): QuoteShareViewRow => ({
+      id: Number(r.id),
+      viewed_at: String(r.viewed_at),
+      duration_ms:
+        r.duration_ms == null || !Number.isFinite(Number(r.duration_ms))
+          ? null
+          : Math.max(0, Math.floor(Number(r.duration_ms))),
+    })
+  );
+}
+
+/** @deprecated 使用 listQuoteShareViews */
+export async function listQuoteShareViewTimes(shareId: number, limit = 50) {
+  const rows = await listQuoteShareViews(shareId, limit);
+  return rows.map((r) => r.viewed_at);
+}
+
+export async function serializeQuoteShareWithViews(
+  share: QuoteShareRow | null,
+  origin?: string | null
+) {
+  if (!share) return null;
+  const views = await listQuoteShareViews(share.id);
+  return serializeQuoteShare(share, origin, views);
+}
+
+/** 为已通过/已确认报价创建客户确认链接；会撤销旧的 active 链接 */
+export async function createQuoteShare(params: {
+  user: SessionUser;
+  quote: { id: number; company_id: number; status: string };
+}) {
+  const { user, quote } = params;
+  if (!user.company_id) throw new AuthError("缺少公司信息", 400);
+  if (quote.status !== "approved" && quote.status !== "confirmed") {
+    throw new AuthError("仅已通过的报价可生成客户确认链接", 400);
+  }
+
+  const settings = await getQuoteSettings(user.company_id);
+  const token = newShareToken();
+  const expiresAt = new Date(
+    Date.now() + settings.share_valid_days * 24 * 60 * 60 * 1000
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE quote_shares SET
+         status = 'revoked',
+         revoked_at = CURRENT_TIMESTAMP
+       WHERE quote_id = $1 AND status = 'active'`,
+      [quote.id]
+    );
+    const inserted = await client.query(
+      `INSERT INTO quote_shares
+        (quote_id, company_id, token, status, expires_at, max_views, created_by)
+       VALUES ($1,$2,$3,'active',$4,$5,$6)
+       RETURNING *`,
+      [
+        quote.id,
+        user.company_id,
+        token,
+        expiresAt.toISOString(),
+        settings.share_max_views,
+        user.id,
+      ]
+    );
+    await client.query("COMMIT");
+    await writeAuditLog({
+      user,
+      action: "quote.share.create",
+      targetType: "quote",
+      targetId: quote.id,
+      summary: `生成客户确认链接，有效 ${settings.share_valid_days} 天 / ${settings.share_max_views} 次`,
+    });
+    return inserted.rows[0] as QuoteShareRow;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function revokeQuoteShare(params: {
+  user: SessionUser;
+  quoteId: number;
+}) {
+  const share = await getActiveQuoteShare(params.quoteId);
+  if (!share) throw new AuthError("当前没有有效的分享链接", 404);
+  await pool.query(
+    `UPDATE quote_shares SET
+       status = 'revoked',
+       revoked_at = CURRENT_TIMESTAMP
+     WHERE id = $1`,
+    [share.id]
+  );
+  await writeAuditLog({
+    user: params.user,
+    action: "quote.share.revoke",
+    targetType: "quote",
+    targetId: params.quoteId,
+    summary: "撤销客户确认链接",
+  });
+  return share;
+}
+
+export async function revokeAllQuoteShares(quoteId: number) {
+  await pool.query(
+    `UPDATE quote_shares SET
+       status = 'revoked',
+       revoked_at = CURRENT_TIMESTAMP
+     WHERE quote_id = $1 AND status = 'active'`,
+    [quoteId]
+  );
+}
+
+export type PublicQuoteErrorCode =
+  | "not_found"
+  | "revoked"
+  | "expired"
+  | "views_exhausted";
+
+export async function loadPublicQuoteByToken(token: string) {
+  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
+    token,
+  ]);
+  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  if (!share) {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
+  }
+  if (share.status === "revoked") {
+    return { ok: false as const, code: "revoked" as PublicQuoteErrorCode, share };
+  }
+  if (new Date(share.expires_at).getTime() <= Date.now()) {
+    return { ok: false as const, code: "expired" as PublicQuoteErrorCode, share };
+  }
+
+  const quoteRes = await pool.query(
+    `SELECT q.id, q.version, q.status, q.title, q.currency, q.list_total, q.total,
+            q.max_discount_pct, q.valid_until, q.decided_at,
+            TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+            o.title AS opportunity_title,
+            co.name AS company_name
+     FROM quotes q
+     JOIN customers c ON c.id = q.customer_id
+     JOIN opportunities o ON o.id = q.opportunity_id
+     JOIN companies co ON co.id = q.company_id
+     WHERE q.id = $1`,
+    [share.quote_id]
+  );
+  const quote = quoteRes.rows[0];
+  if (!quote || quote.status === "void") {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode, share };
+  }
+
+  const items = await loadQuoteItems(share.quote_id);
+  const views = await listQuoteShareViews(share.id);
+  return {
+    ok: true as const,
+    share,
+    views,
+    quote: {
+      ...quote,
+      items: items.map((it: Record<string, unknown>) => ({
+        name: it.name,
+        spec: it.spec,
+        qty: Number(it.qty),
+        unit_price: Number(it.unit_price),
+        discount_pct: Number(it.discount_pct),
+        amount: Number(it.amount),
+      })),
+    },
+  };
+}
+
+/** 记录一次打开；同一时刻只会计 1 次（事务内校验上限） */
+export async function recordPublicQuoteView(token: string) {
+  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
+    token,
+  ]);
+  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  if (!share) {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
+  }
+  if (share.status === "revoked") {
+    return { ok: false as const, code: "revoked" as PublicQuoteErrorCode, share };
+  }
+  if (new Date(share.expires_at).getTime() <= Date.now()) {
+    return { ok: false as const, code: "expired" as PublicQuoteErrorCode, share };
+  }
+
+  // 已确认后再次打开不再占用次数，但也不再记新查看
+  if (share.confirmed_at) {
+    const views = await listQuoteShareViews(share.id);
+    return {
+      ok: true as const,
+      share,
+      views,
+      counted: false as const,
+      view_id: null as number | null,
+    };
+  }
+
+  if (Number(share.view_count) >= Number(share.max_views)) {
+    return {
+      ok: false as const,
+      code: "views_exhausted" as PublicQuoteErrorCode,
+      share,
+    };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const upd = await client.query(
+      `UPDATE quote_shares SET
+         view_count = view_count + 1,
+         last_viewed_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+         AND status = 'active'
+         AND expires_at > CURRENT_TIMESTAMP
+         AND confirmed_at IS NULL
+         AND view_count < max_views
+       RETURNING *`,
+      [share.id]
+    );
+    if (!upd.rows[0]) {
+      await client.query("ROLLBACK");
+      return {
+        ok: false as const,
+        code: "views_exhausted" as PublicQuoteErrorCode,
+        share,
+      };
+    }
+    const viewed = await client.query(
+      `INSERT INTO quote_share_views (share_id, viewed_at, duration_ms)
+       VALUES ($1, CURRENT_TIMESTAMP, NULL)
+       RETURNING id, viewed_at, duration_ms`,
+      [share.id]
+    );
+    await client.query("COMMIT");
+    const current = upd.rows[0] as QuoteShareRow;
+    const views = await listQuoteShareViews(current.id);
+    const viewId = Number(viewed.rows[0]?.id);
+    return {
+      ok: true as const,
+      share: current,
+      views,
+      counted: true as const,
+      view_id: Number.isFinite(viewId) ? viewId : null,
+      viewed_at: String(viewed.rows[0]?.viewed_at || current.last_viewed_at),
+    };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** 回写本次打开的停留时长（只增不减，上限 24h） */
+export async function updatePublicQuoteViewDuration(params: {
+  token: string;
+  viewId: number;
+  durationMs: number;
+}) {
+  const durationMs = Math.min(
+    1 * 60 * 60 * 1000, // 单次查看最长记 1 小时
+    Math.max(0, Math.floor(Number(params.durationMs) || 0))
+  );
+  const shareRes = await pool.query(`SELECT id FROM quote_shares WHERE token = $1`, [
+    params.token,
+  ]);
+  const share = shareRes.rows[0];
+  if (!share) {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
+  }
+
+  const upd = await pool.query(
+    `UPDATE quote_share_views SET
+       duration_ms = GREATEST(COALESCE(duration_ms, 0), $1)
+     WHERE id = $2 AND share_id = $3
+     RETURNING id, viewed_at, duration_ms`,
+    [durationMs, params.viewId, share.id]
+  );
+  if (!upd.rows[0]) {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
+  }
+  return {
+    ok: true as const,
+    view: {
+      id: Number(upd.rows[0].id),
+      viewed_at: String(upd.rows[0].viewed_at),
+      duration_ms: Number(upd.rows[0].duration_ms),
+    } as QuoteShareViewRow,
+  };
+}
+
+export async function confirmPublicQuote(params: {
+  token: string;
+  confirmerName?: string;
+  confirmerNote?: string;
+}) {
+  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
+    params.token,
+  ]);
+  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  if (!share) {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
+  }
+  if (share.status === "revoked") {
+    return { ok: false as const, code: "revoked" as PublicQuoteErrorCode, share };
+  }
+  if (new Date(share.expires_at).getTime() <= Date.now()) {
+    return { ok: false as const, code: "expired" as PublicQuoteErrorCode, share };
+  }
+
+  const quoteRes = await pool.query(
+    `SELECT q.id, q.version, q.status, q.title, q.currency, q.list_total, q.total,
+            q.max_discount_pct, q.valid_until, q.decided_at,
+            TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+            o.title AS opportunity_title,
+            co.name AS company_name
+     FROM quotes q
+     JOIN customers c ON c.id = q.customer_id
+     JOIN opportunities o ON o.id = q.opportunity_id
+     JOIN companies co ON co.id = q.company_id
+     WHERE q.id = $1`,
+    [share.quote_id]
+  );
+  const quoteRow = quoteRes.rows[0];
+  if (!quoteRow || quoteRow.status === "void") {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode, share };
+  }
+
+  const items = await loadQuoteItems(share.quote_id);
+  const quote = {
+    ...quoteRow,
+    items: items.map((it: Record<string, unknown>) => ({
+      name: it.name,
+      spec: it.spec,
+      qty: Number(it.qty),
+      unit_price: Number(it.unit_price),
+      discount_pct: Number(it.discount_pct),
+      amount: Number(it.amount),
+    })),
+  };
+
+  if (share.confirmed_at) {
+    return { ok: true as const, share, quote, already: true as const };
+  }
+  if (quoteRow.status !== "approved" && quoteRow.status !== "confirmed") {
+    return { ok: false as const, code: "not_found" as PublicQuoteErrorCode, share };
+  }
+
+  const name = String(params.confirmerName || "").trim().slice(0, 100) || null;
+  const note = String(params.confirmerNote || "").trim().slice(0, 500) || null;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const upd = await client.query(
+      `UPDATE quote_shares SET
+         confirmed_at = CURRENT_TIMESTAMP,
+         confirmer_name = $1,
+         confirmer_note = $2
+       WHERE id = $3 AND confirmed_at IS NULL AND status = 'active'
+       RETURNING *`,
+      [name, note, share.id]
+    );
+    if (!upd.rows[0]) {
+      await client.query("ROLLBACK");
+      const again = await getLatestQuoteShare(share.quote_id);
+      if (again?.confirmed_at) {
+        return {
+          ok: true as const,
+          share: again,
+          quote: { ...quote, status: "confirmed" },
+          already: true as const,
+        };
+      }
+      return { ok: false as const, code: "revoked" as PublicQuoteErrorCode, share };
+    }
+    await client.query(
+      `UPDATE quotes SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 AND status IN ('approved','confirmed')`,
+      [share.quote_id]
+    );
+    await client.query("COMMIT");
+
+    const q = await pool.query(
+      `SELECT owner_id, title, version, company_id FROM quotes WHERE id = $1`,
+      [share.quote_id]
+    );
+    const row = q.rows[0];
+    if (row) {
+      await notifyQuote({
+        companyId: Number(row.company_id),
+        userId: Number(row.owner_id),
+        title: "客户已确认报价",
+        body: `「${row.title || "报价"}」V${row.version}${name ? `（${name}）` : ""} 已确认`,
+        quoteId: share.quote_id,
+      });
+    }
+
+    await syncOpportunityAmountByQuoteId(share.quote_id).catch(() => null);
+
+    return {
+      ok: true as const,
+      share: upd.rows[0] as QuoteShareRow,
+      quote: { ...quote, status: "confirmed" },
+      already: false as const,
+    };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+

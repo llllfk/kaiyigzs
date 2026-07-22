@@ -4,6 +4,7 @@ import { requireSession, AuthError } from "@/lib/auth";
 import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { recordOpportunityStageChange } from "@/lib/opportunity-stage-history";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -60,6 +61,18 @@ export async function POST(request: NextRequest, { params }: Ctx) {
        RETURNING *`,
       [suggestedStage, id]
     );
+
+    const aiReason =
+      typeof suggestion.reason === "string" ? suggestion.reason.trim() : "";
+    await recordOpportunityStageChange({
+      user,
+      companyId: opp.company_id,
+      opportunityId: Number(id),
+      fromStage: opp.stage,
+      toStage: String(suggestedStage),
+      reason: aiReason || "采纳 AI 阶段建议",
+      source: "ai_accept",
+    });
 
     await writeAuditLog({
       user,

@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { readObject } from "@/lib/storage";
 import { handleApiError, jsonError } from "@/lib/api";
+import { isRemoteDocumentUri } from "@/lib/coze-knowledge";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -15,6 +16,13 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     if (!file) return jsonError("未找到", 404);
     if (user.role !== "super_admin" && file.company_id !== user.company_id) {
       return jsonError("无权下载", 403);
+    }
+
+    if (isRemoteDocumentUri(file.uri)) {
+      return jsonError(
+        "该文件仅存在于知识库（如在后台导入的表格），本系统无本地副本，无法下载。请到知识库后台查看或导出。",
+        400
+      );
     }
 
     const buf = await readObject(file.uri);

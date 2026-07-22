@@ -1,21 +1,21 @@
 import { NextRequest } from "next/server";
-import { loginWithEmailPassword, AuthError } from "@/lib/auth";
+import { loginWithAccountPassword, AuthError } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk } from "@/lib/api";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const email = String(body.email || "");
+    const account = String(body.account || body.email || body.phone || "").trim();
     const password = String(body.password || "");
-    if (!email || !password) {
-      throw new AuthError("请输入邮箱和密码", 400);
+    if (!account || !password) {
+      throw new AuthError("请输入手机号/邮箱和密码", 400);
     }
-    const user = await loginWithEmailPassword(email, password);
-    await writeAuditLog({
+    const user = await loginWithAccountPassword(account, password);
+    writeAuditLog({
       user,
       action: "login",
-      summary: `${user.email} 登录`,
+      summary: `${user.phone || user.email || user.name} 登录`,
       ip: request.headers.get("x-forwarded-for"),
     });
     return jsonOk(user);

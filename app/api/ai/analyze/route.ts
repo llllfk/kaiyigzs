@@ -6,7 +6,7 @@ import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 /** Lightweight analyze endpoint without persisting media */
 export async function POST(request: NextRequest) {
   try {
-    await requireSession();
+    const user = await requireSession();
     const body = await request.json();
     const text = String(body.text || "").trim();
     const kind = body.kind === "wechat" ? "wechat" : "call";
@@ -15,6 +15,8 @@ export async function POST(request: NextRequest) {
       kind,
       text,
       customerName: body.customer_name,
+      companyId: user.company_id,
+      userId: user.id,
     });
     return jsonOk(result);
   } catch (err) {

@@ -10,7 +10,12 @@ export async function GET() {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
     const result = await pool.query(
-      `SELECT * FROM kb_folders WHERE company_id = $1 ORDER BY sort_order, id`,
+      `SELECT f.*,
+          (SELECT COUNT(*)::int FROM kb_files kf WHERE kf.folder_id = f.id) AS file_count,
+          (SELECT COUNT(*)::int FROM kb_folders c WHERE c.parent_id = f.id) AS child_count
+       FROM kb_folders f
+       WHERE f.company_id = $1
+       ORDER BY f.sort_order, f.id`,
       [user.company_id]
     );
     return jsonOk(result.rows);
@@ -23,14 +28,19 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    if (!canManageFolders(user.role)) {
+    if (!canManageFolders(user)) {
       throw new AuthError("仅公司管理员/销售经理可创建目录", 403);
     }
     const body = await request.json();
     const name = String(body.name || "").trim();
     if (!name) return jsonError("目录名称必填");
 
-    const parentId = body.parent_id ? Number(body.parent_id) : null;
+    const parentId = body.parent_id == null || body.parent_id === "" || body.parent_id === "root"
+      ? null
+      : Number(body.parent_id);
+    if (parentId != null && Number.isNaN(parentId)) {
+      return jsonError("父目录无效");
+    }
     if (parentId) {
       const parent = await pool.query(
         `SELECT id FROM kb_folders WHERE id = $1 AND company_id = $2`,
@@ -64,7 +74,7 @@ export async function PUT(request: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    if (!canManageFolders(user.role)) {
+    if (!canManageFolders(user)) {
       throw new AuthError("仅公司管理员/销售经理可修改目录", 403);
     }
     const body = await request.json();
@@ -98,7 +108,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    if (!canManageFolders(user.role)) {
+    if (!canManageFolders(user)) {
       throw new AuthError("仅公司管理员/销售经理可删除目录", 403);
     }
     const id = Number(request.nextUrl.searchParams.get("id"));
@@ -108,13 +118,16 @@ export async function DELETE(request: NextRequest) {
       `SELECT id FROM kb_folders WHERE parent_id = $1 LIMIT 1`,
       [id]
     );
-    if (child.rows[0]) return jsonError("请先删除子目录");
+    if (child.rows[0]) return jsonError("目录内仍有子目录，请先删除子目录后再删本目录");
 
     const files = await pool.query(
-      `SELECT id FROM kb_files WHERE folder_id = $1 LIMIT 1`,
+      `SELECT COUNT(*)::int AS cnt FROM kb_files WHERE folder_id = $1`,
       [id]
     );
-    if (files.rows[0]) return jsonError("请先删除目录内文件");
+    const fileCount = Number(files.rows[0]?.cnt || 0);
+    if (fileCount > 0) {
+      return jsonError(`目录内仍有 ${fileCount} 个文件，请先删除文件后再删目录`);
+    }
 
     await pool.query(
       `DELETE FROM kb_folders WHERE id = $1 AND company_id = $2`,

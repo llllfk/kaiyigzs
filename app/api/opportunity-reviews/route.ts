@@ -4,6 +4,7 @@ import { requireSession, AuthError } from "@/lib/auth";
 import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { recordOpportunityStageChange } from "@/lib/opportunity-stage-history";
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,6 +73,19 @@ export async function POST(request: NextRequest) {
         `UPDATE opportunities SET stage = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
         [outcome, opportunityId]
       );
+      const reasonParts = [
+        body.reason_category ? String(body.reason_category) : "",
+        body.detail ? String(body.detail) : "",
+      ].filter(Boolean);
+      await recordOpportunityStageChange({
+        user,
+        companyId: opp.company_id,
+        opportunityId,
+        fromStage: opp.stage,
+        toStage: outcome,
+        reason: reasonParts.join(" · ") || "复盘同步阶段",
+        source: "review_sync",
+      });
       await writeAuditLog({
         user,
         action: "opportunity.stage_change",
