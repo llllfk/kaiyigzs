@@ -8,8 +8,8 @@
 - **样式**: Tailwind CSS 4
 - **数据库**: PostgreSQL（pg 驱动）
 - **对象存储**: S3 兼容（Coze Storage / AWS SDK）
-- **运行时**: Node.js 24, pnpm
-- **构建输出**: standalone 模式（Docker 部署）
+- **运行时**: Node.js 24, **pnpm**（禁止 npm/yarn 作为平台安装方式）
+- **构建输出**: 普通 `next build` + `next start`（**不要** `output: "standalone"`，避免 Coze 上 `/_next/static` 404）
 
 ## 目录结构
 
@@ -21,72 +21,73 @@
 │   ├── login/            # 登录页
 │   └── q/                # 公开页面（报价单等）
 ├── components/           # React 组件
-│   ├── ai/               # AI 相关组件
-│   ├── companies/        # 公司管理组件
-│   ├── nav/              # 导航组件
-│   ├── quotes/           # 报价单组件
-│   ├── shared/           # 共享组件
-│   ├── ui/               # 基础 UI 组件
-│   └── voices/           # 语音相关组件
-├── lib/                  # 服务端逻辑（数据库、AI、存储、权限等）
-├── hooks/                # React Hooks
-├── mobile/               # 移动端适配
+├── lib/                  # 服务端逻辑
 ├── public/               # 静态资源
-├── scripts/              # 数据库迁移、种子数据、开发脚本
-├── sql/                  # SQL 初始化脚本
-├── testdata/             # 测试数据
-├── tests/                # 测试文件
-├── types/                # TypeScript 类型定义
-├── docs/                 # 文档
-├── middleware.ts          # Next.js 中间件（鉴权、CSP 等）
-├── next.config.ts         # Next.js 配置
-└── instrumentation.ts     # OpenTelemetry 埋点
+├── scripts/              # 预览/迁移/种子脚本
+│   ├── coze-preview-build.sh
+│   └── coze-preview-run.sh   # next dev 0.0.0.0:5000
+├── .cozeproj/scripts/    # 部署构建/启动
+│   ├── deploy_build.sh   # pnpm install + pnpm build
+│   └── deploy_run.sh     # next start 0.0.0.0:5000
+├── sql/                  # schema
+├── docs/                 # 含 Coze 部署说明与导入核对清单
+├── .coze                 # Coze 预览/部署入口
+├── middleware.ts
+├── next.config.ts        # 无 standalone；含 CSP
+└── package.json          # dev/start 端口 5000
 ```
 
 ## 关键入口 / 核心模块
 
 - **页面入口**: `app/page.tsx` → `app/(portal)/` 主应用
 - **API 路由**: `app/api/` 下按资源组织
-- **数据库连接**: `lib/pool.ts`（pg Pool）、`lib/db.ts`
-- **鉴权**: `lib/auth.ts`、`middleware.ts`
-- **AI 集成**: `lib/ai.ts`、`lib/coze-knowledge.ts`、`lib/transcribe.ts`
-- **存储**: `lib/storage.ts`（S3 兼容）
-- **权限**: `lib/permissions.ts`、`lib/role-access.ts`
-- **报价单**: `lib/quotes.ts`
+- **数据库**: `lib/db.ts` / `lib/pool.ts`（`DATABASE_URL`）
+- **鉴权**: `lib/auth.ts`（Session Cookie + 数据库）、`middleware.ts`（Origin 校验）
+- **AI / 存储**: `lib/ai.ts`、`lib/storage.ts`
 
-## 运行与预览
+## 运行与预览（Coze）
 
-- 开发启动: `pnpm dev`（端口 3001）
-- 构建: `pnpm build`
-- 生产启动: `pnpm start`（端口 3001）
-- 数据库初始化: `pnpm db:init`
-- 种子数据: `pnpm db:seed`
+- 开发/预览端口固定 **5000**，监听 **0.0.0.0**
+- 本地也可：`pnpm dev` → `http://localhost:5000`
+- 构建：`pnpm build`；生产：`pnpm start`（或部署脚本）
 
 ### 预览链路
 
-- 判定为 Web 预览型项目：核心结果是浏览器可访问的 CRM 界面，需通过常驻 dev server 交互验证
-- 预览入口: `scripts/coze-preview-build.sh`（安装依赖）→ `scripts/coze-preview-run.sh`（启动 `next dev --hostname 0.0.0.0 --port 5000`）
-- 根 `.coze` 的 `[dev]` 指向上述脚本，`[preview].preview_enable = "enabled"`
-- 技术项目根目录与工作区根目录重合（`path = "."`），根 `.coze` 同时承担子项目 `.coze` 职责
+- Web 预览型：常驻 `next dev`
+- `.coze` → `[dev].build` = `scripts/coze-preview-build.sh`，`[dev].run` = `scripts/coze-preview-run.sh`
+- `[preview].preview_enable = "enabled"`，`[subprojects].path = ["."]`
 
 ### 部署链路
 
-- 部署类型: service / web
-- 部署入口: `.cozeproj/scripts/deploy_build.sh`（pnpm install + pnpm build）→ `.cozeproj/scripts/deploy_run.sh`（node .next/standalone/server.js，端口 5000）
-- 根 `.coze` 的 `[deploy]` 指向上述脚本
-- Next.js standalone 输出模式，部署时通过 `node server.js` 启动
+- `[deploy].build` = `.cozeproj/scripts/deploy_build.sh`（`pnpm install` + `pnpm build`）
+- `[deploy].run` = `.cozeproj/scripts/deploy_run.sh`（`npx next start -p 5000 -H 0.0.0.0`）
+- **禁止**再改回 `node .next/standalone/server.js`（除非构建后拷贝 `.next/static`）
 
 ## 用户偏好与长期约束
 
-- 平台要求使用 pnpm（禁止 npm/yarn）
-- Next.js standalone 输出模式
-- 预览端口固定为 5000
-- 部署使用 Docker（node:20-alpine）
-- `pg` 包需标记为 serverExternalPackages（已在 next.config.ts 配置）
+- 平台使用 **pnpm**
+- **不要**启用 `output: "standalone"`（Coze 静态资源易 404 / MIME text/plain）
+- 预览与部署端口 **5000**
+- `pg` 已在 `serverExternalPackages`
+- `.env.local` 不入库；生产环境变量在 Coze 控制台配置
+
+## 生产环境变量（导入 Coze 后必配）
+
+| 变量 | 要求 |
+|------|------|
+| `DATABASE_URL` | 须含 `sslmode=require` |
+| `SESSION_SECRET` | ≥ 32 位 |
+| `CONFIG_ENCRYPTION_KEY` | 32 字节 Base64 |
+| `APP_ORIGINS` | 公网 Origin，如 `https://xxx.coze.site`（无末尾 `/`；可多域名逗号分隔） |
+| `TRUST_PROXY` | `true` |
+
+可选：`PUBLIC_APP_BASE_URL`、`DEV_DEMO_LOGIN` + `DEV_*_PASSWORD`、Coze/火山 AI 与 Storage 相关变量。
+
+详见：`docs/Coze部署与静态资源说明.md`、`docs/GitHub导入Coze核对清单.md`
 
 ## 常见问题和预防
 
-- 数据库连接依赖 `DATABASE_URL` 环境变量
-- `CONFIG_ENCRYPTION_KEY` 用于公司配置加密，缺失时部分功能受限
-- AI 功能需要配置 API Key（Coze / OpenAI 兼容）
-- 无 Coze Storage 时回退到本地 `storage/` 目录
+- CSS/JS `MIME text/plain` / 404 → 确认未使用 standalone，且用 `next start`/`next dev`
+- 登录 403 `Invalid request origin` → 检查 `APP_ORIGINS` + `TRUST_PROXY`
+- 整站 500 / instrumentation → 检查 `SESSION_SECRET` 等必填项
+- 无 Coze Storage 时回退本地 `storage/`（生产勿依赖）

@@ -1,4 +1,4 @@
-# Start PostgreSQL + Next.js Turbopack dev server (port 3001)
+# Start PostgreSQL + Next.js Turbopack dev server (port 5000)
 # If either is already running, stop it first, then start fresh.
 $ErrorActionPreference = "Stop"
 try {
@@ -86,7 +86,7 @@ try {
   }
   Set-Location -LiteralPath $Root
 
-  $Port = 3001
+  $Port = 5000
   $PgBin = "C:\Program Files\PostgreSQL\16\bin"
   $PgData = "C:\Users\Administrator\pgdata-sales-crm"
   $env:PGPASSWORD = "postgres"

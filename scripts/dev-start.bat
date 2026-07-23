@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 chcp 65001 >nul 2>&1
 
-REM One-click restart: stop PostgreSQL + Next.js if running, then start Turbopack dev server (port 3001)
+REM One-click restart: stop PostgreSQL + Next.js if running, then start Turbopack dev server (port 5000)
 cd /d "%~dp0.."
 if errorlevel 1 (
   echo [error] cannot cd to project root
