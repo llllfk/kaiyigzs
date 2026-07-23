@@ -9,7 +9,7 @@ PORT="${DEPLOY_RUN_PORT:-5000}"
 
 start_service() {
   echo "Starting HTTP service on port ${PORT} for deploy..."
-  PORT="${PORT}" HOSTNAME=0.0.0.0 node .next/standalone/server.js
+  npx next start -p "${PORT}" -H 0.0.0.0
 }
 
 start_service

@@ -1,7 +1,6 @@
 [project]
 sub_id = "60c1f24b"
 name = "sales-crm"
-entrypoint = "server.js"
 requires = ["nodejs-24"]
 project_type = "web"
 
