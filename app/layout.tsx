@@ -19,45 +19,8 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-(function() {
-  if (typeof window === 'undefined') return;
-  function fixMime() {
-    // 移除被平台 CDN 错误标记的 CSS link
-    document.querySelectorAll('link[rel="stylesheet"][href*="/_next/static/"]').forEach(function(link) {
-      try {
-        var href = link.href;
-        if (link.parentNode) link.parentNode.removeChild(link);
-        var newLink = document.createElement('link');
-        newLink.rel = 'stylesheet';
-        newLink.type = 'text/css';
-        newLink.href = href;
-        document.head.appendChild(newLink);
-      } catch(e) {}
-    });
-    // 移除被错误标记的 JS script
-    document.querySelectorAll('script[src*="/_next/static/"]').forEach(function(script) {
-      try {
-        var src = script.src;
-        if (script.parentNode) script.parentNode.removeChild(script);
-        var newScript = document.createElement('script');
-        newScript.src = src;
-        newScript.type = 'text/javascript';
-        document.head.appendChild(newScript);
-      } catch(e) {}
-    });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fixMime);
-  } else {
-    fixMime();
-  }
-})();
-`,
-          }}
-        />
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className="pb-16 md:pb-0">
         <AppProviders>{children}</AppProviders>
