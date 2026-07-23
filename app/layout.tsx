@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import { AppProviders } from "@/components/shared/AppProviders";
+import { appPublicBaseUrl } from "@/lib/temp-audio";
 import "./globals.css";
 
+const configuredBase = appPublicBaseUrl();
+
 export const metadata: Metadata = {
+  metadataBase: configuredBase ? new URL(configuredBase) : undefined,
   title: "凯艺销售CRM",
   description: "销售客户关系管理与 AI 洞察平台",
 };
