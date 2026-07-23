@@ -1095,7 +1095,7 @@ export default function QuotesClient() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-sky-950">客户确认链接</div>
                   <p className="text-xs text-sky-900/70">
-                    发给客户查看并确认；有效期与查看次数见公司报价规则
+                    发给客户查看并确认；发到微信会显示为带封面的链接卡片。有效期与查看次数见公司报价规则
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-nowrap items-center gap-2">
