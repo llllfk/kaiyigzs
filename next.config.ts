@@ -14,14 +14,23 @@ const nextConfig: NextConfig = {
     "pgpass",
   ],
   async headers() {
-    return [{ source:"/:path*", headers:[
-      { key:"X-Content-Type-Options", value:"nosniff" },
-      { key:"Referrer-Policy", value:"no-referrer" },
-      { key:"X-Frame-Options", value:"DENY" },
-      { key:"Permissions-Policy", value:"camera=(), geolocation=(), payment=(), usb=()" },
-      { key:"Content-Security-Policy", value:contentSecurityPolicy },
-      ...(isProduction ? [{ key:"Strict-Transport-Security", value:"max-age=31536000; includeSubDomains" }] : []),
-    ] }];
+    return [
+      { source:"/:path*", headers:[
+        { key:"X-Content-Type-Options", value:"nosniff" },
+        { key:"Referrer-Policy", value:"no-referrer" },
+        { key:"X-Frame-Options", value:"DENY" },
+        { key:"Permissions-Policy", value:"camera=(), geolocation=(), payment=(), usb=()" },
+        { key:"Content-Security-Policy", value:contentSecurityPolicy },
+        ...(isProduction ? [{ key:"Strict-Transport-Security", value:"max-age=31536000; includeSubDomains" }] : []),
+      ] },
+      // 修复 Coze 平台静态资源 MIME 类型问题
+      { source:"/_next/static/:path*", headers:[
+        { key:"Content-Type", value:"application/javascript" },
+      ] },
+      { source:"/_next/static/css/:path*", headers:[
+        { key:"Content-Type", value:"text/css; charset=utf-8" },
+      ] },
+    ];
   },
   // Coze sandbox — add images.remotePatterns if needed
 };
