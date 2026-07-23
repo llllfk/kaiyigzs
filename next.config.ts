@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const isProduction = process.env.NODE_ENV === "production";
-const contentSecurityPolicy = `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://lf-cdn.coze.cn; style-src 'self' 'unsafe-inline'; font-src 'self' data:${isProduction ? "; upgrade-insecure-requests" : ""}`;
+const contentSecurityPolicy = `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://lf-cdn.coze.cn https://apm.volccdn.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:${isProduction ? "; upgrade-insecure-requests" : ""}`;
 
 const nextConfig: NextConfig = {
   // pg 依赖 Node fs/net，勿打进 Edge / 浏览器包
