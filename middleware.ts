@@ -37,7 +37,11 @@ export function middleware(request: NextRequest) {
   const requestHost = process.env.TRUST_PROXY === "true"
     ? request.headers.get("x-forwarded-host") || request.headers.get("host") || ""
     : request.headers.get("host") || "";
-  if (!allowedOrigins(request).has(origin.replace(/\/$/, "")) || originHost !== requestHost) {
+  const isDev = process.env.NODE_ENV !== "production";
+  const originInAllowlist = allowedOrigins(request).has(origin.replace(/\/$/, ""));
+  const hostMatches = originHost === requestHost;
+  
+  if (!originInAllowlist || (!isDev && !hostMatches)) {
     return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   }
   return response;
