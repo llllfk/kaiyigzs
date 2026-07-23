@@ -27,22 +27,26 @@ export default function RootLayout({
   function fixMime() {
     // 移除被平台 CDN 错误标记的 CSS link
     document.querySelectorAll('link[rel="stylesheet"][href*="/_next/static/"]').forEach(function(link) {
-      var href = link.href;
-      link.remove();
-      var newLink = document.createElement('link');
-      newLink.rel = 'stylesheet';
-      newLink.type = 'text/css';
-      newLink.href = href;
-      document.head.appendChild(newLink);
+      try {
+        var href = link.href;
+        if (link.parentNode) link.parentNode.removeChild(link);
+        var newLink = document.createElement('link');
+        newLink.rel = 'stylesheet';
+        newLink.type = 'text/css';
+        newLink.href = href;
+        document.head.appendChild(newLink);
+      } catch(e) {}
     });
     // 移除被错误标记的 JS script
     document.querySelectorAll('script[src*="/_next/static/"]').forEach(function(script) {
-      var src = script.src;
-      script.remove();
-      var newScript = document.createElement('script');
-      newScript.src = src;
-      newScript.type = 'text/javascript';
-      document.head.appendChild(newScript);
+      try {
+        var src = script.src;
+        if (script.parentNode) script.parentNode.removeChild(script);
+        var newScript = document.createElement('script');
+        newScript.src = src;
+        newScript.type = 'text/javascript';
+        document.head.appendChild(newScript);
+      } catch(e) {}
     });
   }
   if (document.readyState === 'loading') {
