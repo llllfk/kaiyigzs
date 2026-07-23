@@ -2,13 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+function normalizeOrigin(value: string) {
+  return value.trim().replace(/\/$/, "");
+}
+
+function firstHeaderValue(value: string | null) {
+  if (!value) return "";
+  return value.split(",")[0].trim();
+}
+
+/** Compare hosts ignoring optional default ports and proxy suffixes. */
+function hostsEqual(a: string, b: string) {
+  const left = firstHeaderValue(a).toLowerCase().replace(/:\d+$/, "");
+  const right = firstHeaderValue(b).toLowerCase().replace(/:\d+$/, "");
+  return Boolean(left && right && left === right);
+}
+
 function allowedOrigins(request: NextRequest) {
   const configured = (process.env.APP_ORIGINS || "")
     .split(",")
-    .map((value) => value.trim().replace(/\/$/, ""))
+    .map(normalizeOrigin)
     .filter(Boolean);
   if (process.env.NODE_ENV === "production") return new Set(configured);
-  return new Set([...configured, request.nextUrl.origin]);
+  return new Set([...configured, normalizeOrigin(request.nextUrl.origin)]);
 }
 
 export function middleware(request: NextRequest) {
@@ -34,14 +50,20 @@ export function middleware(request: NextRequest) {
   } catch {
     // Invalid origins are rejected below.
   }
-  const requestHost = process.env.TRUST_PROXY === "true"
-    ? request.headers.get("x-forwarded-host") || request.headers.get("host") || ""
-    : request.headers.get("host") || "";
+
+  const trustProxy = process.env.TRUST_PROXY === "true";
+  const requestHost = trustProxy
+    ? firstHeaderValue(request.headers.get("x-forwarded-host")) ||
+      firstHeaderValue(request.headers.get("host"))
+    : firstHeaderValue(request.headers.get("host"));
+
   const isDev = process.env.NODE_ENV !== "production";
-  const originInAllowlist = allowedOrigins(request).has(origin.replace(/\/$/, ""));
-  const hostMatches = originHost === requestHost;
-  
-  if (!originInAllowlist || (!isDev && !hostMatches)) {
+  const originInAllowlist = allowedOrigins(request).has(normalizeOrigin(origin));
+  // Coze / reverse proxy: Origin is public domain, Host may be internal — only enforce allowlist.
+  const hostMatches = hostsEqual(originHost, requestHost);
+  const hostOk = isDev || trustProxy || hostMatches;
+
+  if (!originInAllowlist || !hostOk) {
     return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   }
   return response;
