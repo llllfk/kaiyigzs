@@ -55,7 +55,7 @@ export async function GET() {
     const user = await requireSession();
     const scope = await remindScope(user);
     if ("error" in scope) {
-      return jsonError(scope.error, scope.status);
+      return jsonError(scope.error ?? "未知错误", scope.status);
     }
 
     const { rows } = await pool.query(
@@ -85,7 +85,7 @@ export async function POST() {
     const user = await requireSession();
     const scope = await remindScope(user);
     if ("error" in scope) {
-      return jsonError(scope.error, scope.status);
+      return jsonError(scope.error ?? "未知错误", scope.status);
     }
 
     const { rows } = await pool.query(
