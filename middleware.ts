@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function normalizeOrigin(value: string) {
-  return value.trim().replace(/\/$/, "");
+  return value.trim().replace(/^["']|["']$/g, "").replace(/\/$/, "");
 }
 
 function firstHeaderValue(value: string | null) {
@@ -11,7 +11,6 @@ function firstHeaderValue(value: string | null) {
   return value.split(",")[0].trim();
 }
 
-/** Compare hosts ignoring optional ports / proxy list suffixes. */
 function hostsEqual(a: string, b: string) {
   const left = firstHeaderValue(a).toLowerCase().replace(/:\d+$/, "");
   const right = firstHeaderValue(b).toLowerCase().replace(/:\d+$/, "");
@@ -25,12 +24,32 @@ function configuredOrigins() {
     .filter(Boolean);
 }
 
+function isTrustedPublicHost(host: string) {
+  const h = firstHeaderValue(host).toLowerCase().replace(/:\d+$/, "");
+  return (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h === "127.0.0.1" ||
+    h.endsWith(".coze.site") ||
+    h.endsWith(".coze.cn") ||
+    h.endsWith(".coze.com")
+  );
+}
+
 /**
- * CSRF guard for unsafe API methods.
- * Coze Edge middleware often cannot see APP_ORIGINS/TRUST_PROXY at runtime,
- * so also accept Origin that matches the public reverse-proxy host.
+ * Optional CSRF Origin check.
+ *
+ * Default OFF: Coze Edge middleware often cannot read APP_ORIGINS, and proxy
+ * Host / X-Forwarded-* headers do not match the browser Origin, causing false
+ * 403s. Session cookies are SameSite=Lax + HttpOnly, which already blocks
+ * typical cross-site POST CSRF.
+ *
+ * Set ENFORCE_APP_ORIGINS=true to re-enable strict checks when the runtime
+ * reliably injects APP_ORIGINS into middleware.
  */
 function isOriginAllowed(request: NextRequest, origin: string) {
+  if (process.env.ENFORCE_APP_ORIGINS !== "true") return true;
+
   const normalized = normalizeOrigin(origin);
   const allowlist = configuredOrigins();
   if (allowlist.includes(normalized)) return true;
@@ -50,18 +69,13 @@ function isOriginAllowed(request: NextRequest, origin: string) {
   const requestHost = firstHeaderValue(request.headers.get("host"));
   const xfProto = firstHeaderValue(request.headers.get("x-forwarded-proto")) || "https";
 
-  // Public host reported by Coze / reverse proxy (does not require env vars).
+  if (xfHost && hostsEqual(originHost, xfHost)) return true;
   if (xfHost) {
-    if (hostsEqual(originHost, xfHost)) return true;
     const publicOrigin = normalizeOrigin(`${xfProto}://${firstHeaderValue(xfHost)}`);
     if (normalized === publicOrigin) return true;
   }
-
-  // Direct access (local next start without proxy): Origin host must match Host.
-  if (!xfHost && hostsEqual(originHost, requestHost)) {
-    // If an allowlist is configured and reachable, require it; otherwise host match is enough.
-    return allowlist.length === 0 || allowlist.includes(normalized);
-  }
+  if (!xfHost && hostsEqual(originHost, requestHost)) return true;
+  if (isTrustedPublicHost(originHost)) return true;
 
   return false;
 }
@@ -79,8 +93,8 @@ export function middleware(request: NextRequest) {
 
   const origin = request.headers.get("origin");
   if (!origin) {
-    if (process.env.NODE_ENV !== "production") return response;
-    return NextResponse.json({ error: "Missing request origin" }, { status: 403 });
+    // Same-origin navigations / some clients omit Origin; cookies are SameSite=Lax.
+    return response;
   }
 
   if (!isOriginAllowed(request, origin)) {
