@@ -11,20 +11,59 @@ function firstHeaderValue(value: string | null) {
   return value.split(",")[0].trim();
 }
 
-/** Compare hosts ignoring optional default ports and proxy suffixes. */
+/** Compare hosts ignoring optional ports / proxy list suffixes. */
 function hostsEqual(a: string, b: string) {
   const left = firstHeaderValue(a).toLowerCase().replace(/:\d+$/, "");
   const right = firstHeaderValue(b).toLowerCase().replace(/:\d+$/, "");
   return Boolean(left && right && left === right);
 }
 
-function allowedOrigins(request: NextRequest) {
-  const configured = (process.env.APP_ORIGINS || "")
+function configuredOrigins() {
+  return (process.env.APP_ORIGINS || "")
     .split(",")
     .map(normalizeOrigin)
     .filter(Boolean);
-  if (process.env.NODE_ENV === "production") return new Set(configured);
-  return new Set([...configured, normalizeOrigin(request.nextUrl.origin)]);
+}
+
+/**
+ * CSRF guard for unsafe API methods.
+ * Coze Edge middleware often cannot see APP_ORIGINS/TRUST_PROXY at runtime,
+ * so also accept Origin that matches the public reverse-proxy host.
+ */
+function isOriginAllowed(request: NextRequest, origin: string) {
+  const normalized = normalizeOrigin(origin);
+  const allowlist = configuredOrigins();
+  if (allowlist.includes(normalized)) return true;
+
+  if (process.env.NODE_ENV !== "production") {
+    if (normalized === normalizeOrigin(request.nextUrl.origin)) return true;
+  }
+
+  let originHost = "";
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+
+  const xfHost = firstHeaderValue(request.headers.get("x-forwarded-host"));
+  const requestHost = firstHeaderValue(request.headers.get("host"));
+  const xfProto = firstHeaderValue(request.headers.get("x-forwarded-proto")) || "https";
+
+  // Public host reported by Coze / reverse proxy (does not require env vars).
+  if (xfHost) {
+    if (hostsEqual(originHost, xfHost)) return true;
+    const publicOrigin = normalizeOrigin(`${xfProto}://${firstHeaderValue(xfHost)}`);
+    if (normalized === publicOrigin) return true;
+  }
+
+  // Direct access (local next start without proxy): Origin host must match Host.
+  if (!xfHost && hostsEqual(originHost, requestHost)) {
+    // If an allowlist is configured and reachable, require it; otherwise host match is enough.
+    return allowlist.length === 0 || allowlist.includes(normalized);
+  }
+
+  return false;
 }
 
 export function middleware(request: NextRequest) {
@@ -44,26 +83,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.json({ error: "Missing request origin" }, { status: 403 });
   }
 
-  let originHost = "";
-  try {
-    originHost = new URL(origin).host;
-  } catch {
-    // Invalid origins are rejected below.
-  }
-
-  const trustProxy = process.env.TRUST_PROXY === "true";
-  const requestHost = trustProxy
-    ? firstHeaderValue(request.headers.get("x-forwarded-host")) ||
-      firstHeaderValue(request.headers.get("host"))
-    : firstHeaderValue(request.headers.get("host"));
-
-  const isDev = process.env.NODE_ENV !== "production";
-  const originInAllowlist = allowedOrigins(request).has(normalizeOrigin(origin));
-  // Coze / reverse proxy: Origin is public domain, Host may be internal — only enforce allowlist.
-  const hostMatches = hostsEqual(originHost, requestHost);
-  const hostOk = isDev || trustProxy || hostMatches;
-
-  if (!originInAllowlist || !hostOk) {
+  if (!isOriginAllowed(request, origin)) {
     return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   }
   return response;
