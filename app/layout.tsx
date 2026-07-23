@@ -38,12 +38,11 @@ export default function RootLayout({
     // 移除被错误标记的 JS script
     document.querySelectorAll('script[src*="/_next/static/"]').forEach(function(script) {
       var src = script.src;
-      var parent = script.parentNode;
       script.remove();
       var newScript = document.createElement('script');
       newScript.src = src;
       newScript.type = 'text/javascript';
-      if (parent) parent.appendChild(newScript);
+      document.head.appendChild(newScript);
     });
   }
   if (document.readyState === 'loading') {
