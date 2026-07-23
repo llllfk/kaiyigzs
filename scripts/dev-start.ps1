@@ -1,4 +1,4 @@
-# Start PostgreSQL + Next.js (port 3001)
+# Start PostgreSQL + Next.js Turbopack dev server (port 3001)
 # If either is already running, stop it first, then start fresh.
 $ErrorActionPreference = "Stop"
 try {
@@ -92,7 +92,7 @@ try {
   $env:PGPASSWORD = "postgres"
 
   Write-Host "========================================"
-  Write-Host "  Kaiyi CRM start (restart if running)"
+  Write-Host "  Kaiyi CRM Turbopack dev start"
   Write-Host "========================================"
   Write-Host "Root: $Root"
   Write-Host ""
@@ -141,7 +141,7 @@ try {
   Write-Host "========================================"
   Write-Host ""
 
-  npm run dev
+  npm run dev:turbo
   $code = $LASTEXITCODE
   if ($null -eq $code) { $code = 0 }
 

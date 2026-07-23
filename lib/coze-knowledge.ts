@@ -4,6 +4,7 @@
  */
 
 import pool from "@/lib/db";
+import { decryptCompanyConfig } from "@/lib/config-crypto";
 import { getAiTimeoutMs } from "@/lib/ai";
 import {
   COZE_DATASET_TYPE_LABELS,
@@ -38,7 +39,8 @@ export async function listCompanyCozeDatasets(
   const envDataset = process.env.COZE_DATASET_ID?.trim() || "";
 
   const res = await pool.query(`SELECT config FROM companies WHERE id = $1`, [companyId]);
-  const coze = (res.rows[0]?.config as { coze?: Record<string, unknown> } | null)?.coze;
+  const config = decryptCompanyConfig((res.rows[0]?.config || {}) as Record<string, unknown>);
+  const coze = (config as { coze?: Record<string, unknown> }).coze;
   const apiKey = String(coze?.api_key || "").trim() || envKey;
   const apiBase = String(coze?.api_base || "").trim() || envBase;
   let datasets = normalizeCozeDatasets(coze);

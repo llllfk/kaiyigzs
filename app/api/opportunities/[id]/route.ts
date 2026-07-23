@@ -8,6 +8,7 @@ import {
   recordOpportunityStageChange,
   type StageChangeSource,
 } from "@/lib/opportunity-stage-history";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -19,7 +20,9 @@ async function getOpp(id: string) {
 export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("opportunities", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     const result = await pool.query(
       `SELECT o.*,
          TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
@@ -57,7 +60,9 @@ function resolveStageSource(body: {
 export async function PUT(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("opportunities", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     const opp = await getOpp(id);
     if (!opp) return jsonError("未找到", 404);
     assertCompanyAccess(user, opp.company_id);
@@ -174,7 +179,9 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
 export async function DELETE(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("opportunities", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     const opp = await getOpp(id);
     if (!opp) return jsonError("未找到", 404);
     assertCompanyAccess(user, opp.company_id);

@@ -22,11 +22,39 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   last_login_at TIMESTAMPTZ,
-  notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb
+  notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ui_prefs JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_prefs JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  token_hash VARCHAR(64) PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  act_as_company_id BIGINT REFERENCES companies(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMPTZ NOT NULL,
+  ip VARCHAR(100),
+  user_agent VARCHAR(500),
+  auth_level VARCHAR(20) NOT NULL DEFAULT 'password'
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS security_rate_limits (
+  bucket_key VARCHAR(200) PRIMARY KEY,
+  window_started_at TIMESTAMPTZ NOT NULL,
+  hit_count INT NOT NULL DEFAULT 0,
+  blocked_until TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_security_rate_limits_updated ON security_rate_limits(updated_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_company_admin
   ON users (company_id)
@@ -327,6 +355,10 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   ip VARCHAR(64),
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE audit_logs ALTER COLUMN ip TYPE VARCHAR(100);
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS request_id UUID;
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS session_prefix VARCHAR(16);
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS security_event VARCHAR(100);
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_company_created
   ON audit_logs (company_id, created_at DESC);
@@ -412,6 +444,9 @@ CREATE TABLE IF NOT EXISTS quote_shares (
 
 CREATE INDEX IF NOT EXISTS idx_quote_shares_quote ON quote_shares(quote_id);
 CREATE INDEX IF NOT EXISTS idx_quote_shares_token ON quote_shares(token);
+ALTER TABLE quote_shares ADD COLUMN IF NOT EXISTS token_hash VARCHAR(64);
+ALTER TABLE quote_shares ALTER COLUMN token DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quote_shares_token_hash ON quote_shares(token_hash) WHERE token_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_quote_shares_active
   ON quote_shares(quote_id, status) WHERE status = 'active';
 
@@ -491,3 +526,46 @@ CREATE INDEX IF NOT EXISTS idx_voice_synth_logs_official
   ON voice_synth_logs (official_speaker_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_voice_synth_logs_company
   ON voice_synth_logs (company_id, created_at DESC);
+
+-- Public business identifiers are safe to expose in URLs. Internal bigint IDs remain unchanged.
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE customers SET public_id = 'CUS' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE customers ALTER COLUMN public_id SET DEFAULT ('CUS' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE customers ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_customers_public_id ON customers(public_id);
+
+ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE opportunities SET public_id = 'OPP' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE opportunities ALTER COLUMN public_id SET DEFAULT ('OPP' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE opportunities ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_opportunities_public_id ON opportunities(public_id);
+
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE quotes SET public_id = 'QUO' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE quotes ALTER COLUMN public_id SET DEFAULT ('QUO' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE quotes ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_quotes_public_id ON quotes(public_id);
+
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE tasks SET public_id = 'TSK' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE tasks ALTER COLUMN public_id SET DEFAULT ('TSK' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE tasks ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_public_id ON tasks(public_id);
+
+ALTER TABLE media_assets ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE media_assets SET public_id = 'MED' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE media_assets ALTER COLUMN public_id SET DEFAULT ('MED' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE media_assets ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_media_assets_public_id ON media_assets(public_id);
+
+ALTER TABLE kb_files ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE kb_files SET public_id = 'KBF' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE kb_files ALTER COLUMN public_id SET DEFAULT ('KBF' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE kb_files ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_files_public_id ON kb_files(public_id);
+
+ALTER TABLE report_exports ADD COLUMN IF NOT EXISTS public_id VARCHAR(24);
+UPDATE report_exports SET public_id = 'RPT' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)) WHERE public_id IS NULL;
+ALTER TABLE report_exports ALTER COLUMN public_id SET DEFAULT ('RPT' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 20)));
+ALTER TABLE report_exports ALTER COLUMN public_id SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_report_exports_public_id ON report_exports(public_id);

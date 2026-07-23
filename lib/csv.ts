@@ -33,7 +33,9 @@ export function exportStamp() {
 export function csvFileResponse(filename: string, csv: string) {
   const bom = "\uFEFF";
   // filename= 只能用 ASCII；中文名放 filename*（RFC 5987）
-  const asciiName = filename.replace(/[^\x20-\x7E]/g, "_") || "export.csv";
+  // 用英文兜底名，避免部分客户端落到「___-日期.csv」
+  const stamp = filename.match(/(\d{8}-\d{4})/)?.[1] || exportStamp();
+  const asciiName = `export-${stamp}.csv`;
   return new NextResponse(bom + csv, {
     status: 200,
     headers: {

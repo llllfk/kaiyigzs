@@ -7,13 +7,17 @@ import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { normalizePhone } from "@/lib/utils";
 import { isCustomerStatus } from "@/types";
 import { mergePainPoints } from "@/lib/pain-points";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const key = (await params).id;
+    const resolved = await resolvePublicRecordId("customers", key);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     await assertCanAccessCustomer(user, Number(id));
 
     const result = await pool.query(
@@ -84,7 +88,10 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
 export async function PUT(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const key = (await params).id;
+    const resolved = await resolvePublicRecordId("customers", key);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     const existing = await assertCanAccessCustomer(user, Number(id));
     const body = await request.json();
 
@@ -161,7 +168,10 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
 export async function DELETE(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const key = (await params).id;
+    const resolved = await resolvePublicRecordId("customers", key);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     await assertCanAccessCustomer(user, Number(id));
     if (user.role === "sales") {
       return jsonError("销售无权删除客户", 403);

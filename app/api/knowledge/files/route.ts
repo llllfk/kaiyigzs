@@ -14,6 +14,7 @@ import {
 } from "@/lib/coze-knowledge";
 import { COZE_TYPE_EXTS } from "@/lib/coze-datasets";
 import { parsePageParams, resolvePagination } from "@/lib/pagination";
+import { assertSafeUpload } from "@/lib/file-security";
 
 export async function GET(request: NextRequest) {
   try {
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
 
     const blob = file as File;
     const buf = Buffer.from(await blob.arrayBuffer());
+    assertSafeUpload(blob,buf,{ maxBytes:100*1024*1024, allowedExts:["txt","md","pdf","doc","docx","xls","xlsx","csv","ppt","pptx","jpg","jpeg","png","webp"] });
     const ext = blob.name.includes(".")
       ? blob.name.slice(blob.name.lastIndexOf(".") + 1).toLowerCase()
       : "";

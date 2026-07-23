@@ -16,6 +16,7 @@ import { useSessionUser } from "@/components/shared/SessionUserContext";
 
 type PoolItem = {
   id: number;
+  public_id: string;
   company_name: string | null;
   name: string;
   industry: string | null;
@@ -295,7 +296,7 @@ export default function PoolPage() {
             className="surface card-interactive relative h-full w-full p-4"
           >
             <AppLink
-              href={`/customers/${c.id}`}
+              href={`/customers/${c.public_id || c.id}`}
               className="break-words font-semibold text-[var(--color-accent)]"
             >
               {c.company_name || c.name}

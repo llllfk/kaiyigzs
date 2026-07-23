@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 function escapeHtml(s: string) {
@@ -24,7 +27,10 @@ export function formatAiMarkdown(raw: string): string {
   const inline = (s: string) => {
     let t = escapeHtml(s);
     t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    t = t.replace(/`([^`]+)`/g, '<code class="rounded bg-slate-100 px-1 text-[0.9em]">$1</code>');
+    t = t.replace(
+      /`([^`]+)`/g,
+      '<code class="rounded bg-slate-100 px-1 text-[0.9em]">$1</code>'
+    );
     return t;
   };
 
@@ -46,7 +52,8 @@ export function formatAiMarkdown(raw: string): string {
       continue;
     }
 
-    const li = trimmed.match(/^[-*•]\s+(.+)$/) || trimmed.match(/^\d+[.)、]\s*(.+)$/);
+    const li =
+      trimmed.match(/^[-*•]\s+(.+)$/) || trimmed.match(/^\d+[.)、]\s*(.+)$/);
     if (li) {
       if (!inList) {
         html.push('<ul class="my-1 list-disc space-y-1 pl-5">');
@@ -63,17 +70,71 @@ export function formatAiMarkdown(raw: string): string {
   return html.join("");
 }
 
+/** text-sm + leading-6 → 每行 1.5rem */
+const LINE_HEIGHT_REM = 1.5;
+
 export function AiMessageContent({
   content,
   className,
+  clampLines = 3,
 }: {
   content: string;
   className?: string;
+  /** 折叠时最多显示行数，默认 3 */
+  clampLines?: number;
 }) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const collapsedMax = `${clampLines * LINE_HEIGHT_REM}rem`;
+
+  useLayoutEffect(() => {
+    setExpanded(false);
+  }, [content]);
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    if (expanded) {
+      const maxPx = clampLines * LINE_HEIGHT_REM * 16;
+      setOverflows(el.scrollHeight > maxPx + 1);
+      return;
+    }
+    setOverflows(el.scrollHeight > el.clientHeight + 1);
+  }, [content, expanded, clampLines]);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (expanded) {
+        const maxPx = clampLines * LINE_HEIGHT_REM * 16;
+        setOverflows(el.scrollHeight > maxPx + 1);
+        return;
+      }
+      setOverflows(el.scrollHeight > el.clientHeight + 1);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [expanded, content, clampLines]);
+
   return (
-    <div
-      className={cn("text-sm [&_strong]:font-semibold", className)}
-      dangerouslySetInnerHTML={{ __html: formatAiMarkdown(content) }}
-    />
+    <div className={cn("text-sm [&_strong]:font-semibold", className)}>
+      <div
+        ref={bodyRef}
+        className={cn(!expanded && "overflow-hidden")}
+        style={!expanded ? { maxHeight: collapsedMax } : undefined}
+        dangerouslySetInnerHTML={{ __html: formatAiMarkdown(content) }}
+      />
+      {(overflows || expanded) && (
+        <button
+          type="button"
+          className="mt-1.5 text-xs font-medium text-[var(--color-accent)] hover:underline"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "收起" : "展开全文"}
+        </button>
+      )}
+    </div>
   );
 }

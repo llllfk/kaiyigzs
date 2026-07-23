@@ -13,6 +13,7 @@ import { auditActionLabel, lastNDaysRange } from "@/lib/audit-labels";
 import { canViewAllCompanyVoiceLogs } from "@/lib/role-access";
 import { cn, formatDateTime, formatSynthDurationSec } from "@/lib/utils";
 import { useSessionUser } from "@/components/shared/SessionUserContext";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 
 type TabKey = "voices" | "synth" | "train";
 
@@ -312,107 +313,117 @@ export default function VoiceRecordsPage() {
 
       {tab !== "voices" && (
         <>
-          <div className="flex flex-wrap items-end gap-3">
-            {tab === "synth" ? (
+          <CollapsibleListFilters
+            activeCount={
+              tab === "synth"
+                ? (source ? 1 : 0) + (status ? 1 : 0) + (saved ? 1 : 0)
+                : (action ? 1 : 0) + (viewAll && actorId ? 1 : 0)
+            }
+            primary={
+              <div className="w-full min-w-0 md:w-52 md:min-w-[12rem] md:flex-1 md:max-w-md">
+                <input
+                  className="input w-full"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={
+                    tab === "synth"
+                      ? "文案 / 语气 / 音色 / 人员"
+                      : "动作 / 摘要 / 人员"
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onSearch();
+                  }}
+                />
+              </div>
+            }
+            secondary={
               <>
-                <div className="field w-36 min-w-[8rem]">
-                  <label>来源</label>
-                  <Select
-                    value={source}
-                    onChange={setSource}
-                    options={[
-                      { value: "", label: "全部来源" },
-                      { value: "clone", label: "声音复刻" },
-                      { value: "official", label: "官方音色" },
-                    ]}
-                    placement="auto"
-                  />
-                </div>
-                <div className="field w-36 min-w-[8rem]">
-                  <label>状态</label>
-                  <Select
-                    value={status}
-                    onChange={setStatus}
-                    options={[
-                      { value: "", label: "全部状态" },
-                      { value: "success", label: "成功" },
-                      { value: "failed", label: "失败" },
-                    ]}
-                    placement="auto"
-                  />
-                </div>
-                <div className="field w-36 min-w-[8rem]">
-                  <label>已保存</label>
-                  <Select
-                    value={saved}
-                    onChange={setSaved}
-                    options={[
-                      { value: "", label: "全部" },
-                      { value: "1", label: "已保存" },
-                      { value: "0", label: "未保存" },
-                    ]}
-                    placement="auto"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="field w-44 min-w-[10rem]">
-                  <label>动作</label>
-                  <Select
-                    value={action}
-                    onChange={setAction}
-                    options={[...TRAIN_ACTION_OPTIONS]}
-                    placement="auto"
-                  />
-                </div>
-                {viewAll && (
-                  <div className="field w-40 min-w-[9rem]">
-                    <label>人员</label>
-                    <Select
-                      value={actorId}
-                      onChange={setActorId}
-                      options={actorOptions}
-                      searchable
-                      placement="auto"
-                    />
-                  </div>
+                {tab === "synth" ? (
+                  <>
+                    <div className="field w-36 min-w-[8rem]">
+                      <label>来源</label>
+                      <Select
+                        value={source}
+                        onChange={setSource}
+                        options={[
+                          { value: "", label: "全部来源" },
+                          { value: "clone", label: "声音复刻" },
+                          { value: "official", label: "官方音色" },
+                        ]}
+                        placement="auto"
+                      />
+                    </div>
+                    <div className="field w-36 min-w-[8rem]">
+                      <label>状态</label>
+                      <Select
+                        value={status}
+                        onChange={setStatus}
+                        options={[
+                          { value: "", label: "全部状态" },
+                          { value: "success", label: "成功" },
+                          { value: "failed", label: "失败" },
+                        ]}
+                        placement="auto"
+                      />
+                    </div>
+                    <div className="field w-36 min-w-[8rem]">
+                      <label>已保存</label>
+                      <Select
+                        value={saved}
+                        onChange={setSaved}
+                        options={[
+                          { value: "", label: "全部" },
+                          { value: "1", label: "已保存" },
+                          { value: "0", label: "未保存" },
+                        ]}
+                        placement="auto"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="field w-44 min-w-[10rem]">
+                      <label>动作</label>
+                      <Select
+                        value={action}
+                        onChange={setAction}
+                        options={[...TRAIN_ACTION_OPTIONS]}
+                        placement="auto"
+                      />
+                    </div>
+                    {viewAll && (
+                      <div className="field w-40 min-w-[9rem]">
+                        <label>人员</label>
+                        <Select
+                          value={actorId}
+                          onChange={setActorId}
+                          options={actorOptions}
+                          searchable
+                          placement="auto"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
+                <div className="field w-40 min-w-[9rem]">
+                  <label>开始日期</label>
+                  <DatePicker value={from} onChange={setFrom} placeholder="开始" />
+                </div>
+                <div className="field w-40 min-w-[9rem]">
+                  <label>结束日期</label>
+                  <DatePicker value={to} onChange={setTo} placeholder="结束" />
+                </div>
+                <div className="flex flex-wrap items-end gap-2 pb-0.5">
+                  <Button variant="secondary" onClick={onSearch}>
+                    查询
+                  </Button>
+                  <Button variant="secondary" onClick={resetFilters}>
+                    重置
+                  </Button>
+                </div>
               </>
-            )}
-            <div className="field w-40 min-w-[9rem]">
-              <label>开始日期</label>
-              <DatePicker value={from} onChange={setFrom} placeholder="开始" />
-            </div>
-            <div className="field w-40 min-w-[9rem]">
-              <label>结束日期</label>
-              <DatePicker value={to} onChange={setTo} placeholder="结束" />
-            </div>
-            <div className="field w-52 min-w-[12rem] flex-1">
-              <label>关键词</label>
-              <input
-                className="input"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder={
-                  tab === "synth"
-                    ? "文案 / 语气 / 音色 / 人员"
-                    : "动作 / 摘要 / 人员"
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onSearch();
-                }}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2 pb-0.5">
-              <Button variant="secondary" onClick={onSearch}>
-                查询
-              </Button>
-              <Button variant="secondary" onClick={resetFilters}>
-                重置
-              </Button>
-            </div>
-          </div>
+            }
+          />
 
           {error && (
             <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -429,7 +440,7 @@ export default function VoiceRecordsPage() {
               <table className="w-full min-w-[64rem] text-sm">
                 <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                   <tr>
-                    <th className="w-14 px-4 py-3 font-medium">#</th>
+                    <th className="w-14 px-4 py-3 font-medium">序号</th>
                     <th className="whitespace-nowrap px-4 py-3 font-medium">
                       时间
                     </th>
@@ -528,7 +539,7 @@ export default function VoiceRecordsPage() {
               <table className="w-full min-w-[40rem] text-sm">
                 <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                   <tr>
-                    <th className="w-14 px-4 py-3 font-medium">#</th>
+                    <th className="w-14 px-4 py-3 font-medium">序号</th>
                     <th className="whitespace-nowrap px-4 py-3 font-medium">
                       时间
                     </th>

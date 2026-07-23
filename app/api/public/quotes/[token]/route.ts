@@ -9,6 +9,7 @@ import {
   updatePublicQuoteViewDuration,
   type PublicQuoteErrorCode,
 } from "@/lib/quotes";
+import { clientIp, enforceRateLimit } from "@/lib/security";
 
 type Ctx = { params: Promise<{ token: string }> };
 
@@ -27,6 +28,7 @@ function publicError(code: PublicQuoteErrorCode) {
 export async function GET(_request: NextRequest, ctx: Ctx) {
   try {
     const token = String((await ctx.params).token || "").trim();
+    await enforceRateLimit({ key:`public-quote:get:${clientIp(_request)}:${token}`, limit:60, windowSeconds:300 });
     if (!token) return jsonError("缺少链接", 400);
     const loaded = await loadPublicQuoteByToken(token);
     if (!loaded.ok) return publicError(loaded.code);
@@ -54,6 +56,7 @@ export async function GET(_request: NextRequest, ctx: Ctx) {
 export async function POST(request: NextRequest, ctx: Ctx) {
   try {
     const token = String((await ctx.params).token || "").trim();
+    await enforceRateLimit({ key:`public-quote:post:${clientIp(request)}:${token}`, limit:30, windowSeconds:300 });
     if (!token) return jsonError("缺少链接", 400);
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "confirm");

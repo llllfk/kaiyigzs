@@ -12,7 +12,7 @@ export function OwnerFilterChip({
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-sky-50 px-2.5 py-1.5 text-sm text-sky-800 ring-1 ring-sky-200/80">
       <span className="truncate">
-        负责人：{ownerName?.trim() || `#${ownerId}`}
+        负责人：{ownerName?.trim() || "已选负责人"}
       </span>
       <button
         type="button"

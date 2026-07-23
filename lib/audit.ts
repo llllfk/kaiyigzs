@@ -11,20 +11,29 @@ export function writeAuditLog(params: {
   targetId?: number | string | null;
   summary?: string;
   ip?: string | null;
+  requestId?: string | null;
+  securityEvent?: string | null;
 }): void {
+  const summary = String(params.summary || "")
+    .replace(/(api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*\S+/gi, "$1=[REDACTED]")
+    .slice(0, 2000) || null;
   void pool
     .query(
       `INSERT INTO audit_logs
-        (company_id, actor_id, action, target_type, target_id, summary, ip)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        (company_id, actor_id, action, target_type, target_id, summary, ip,
+         request_id, session_prefix, security_event)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         params.companyId ?? params.user?.company_id ?? null,
         params.user?.id ?? null,
         params.action,
         params.targetType ?? null,
         params.targetId != null ? String(params.targetId) : null,
-        params.summary ?? null,
+        summary,
         params.ip ?? null,
+        params.requestId ?? null,
+        params.user?.session_prefix ?? null,
+        params.securityEvent ?? null,
       ]
     )
     .catch((err) => {

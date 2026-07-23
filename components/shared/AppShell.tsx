@@ -10,107 +10,30 @@ import { pageCacheInvalidate, prefetchNavPaths } from "@/lib/page-cache";
 import {
   SessionUserProvider,
   useSessionUser,
+  useSessionUserContext,
 } from "@/components/shared/SessionUserContext";
 import { ROLE_LABELS, type SessionUser } from "@/types";
-
-type NavLeaf = { href: string; label: string };
+import { FeatureGridIcon } from "@/components/nav/FeatureGridIcon";
+import {
+  navFor,
+  pathActive,
+  type NavEntry,
+} from "@/lib/portal-nav";
+import {
+  DEFAULT_UI_PREFS,
+  type UiPrefs,
+  normalizeUiPrefs,
+} from "@/lib/ui-prefs";
 
 const UNREAD_TTL_MS = 60_000;
 let unreadCache: { count: number; at: number } | null = null;
 let unreadRequest: Promise<number | null> | null = null;
 
-type NavEntry =
-  | { type: "link"; href: string; label: string }
-  | { type: "group"; id: string; label: string; children: NavLeaf[] };
-
-function pathActive(pathname: string, href: string) {
-  if (pathname === href) return true;
-  // /platform 是独立页面，不能把 /platform/voices 等子路径算作它的激活态
-  if (href === "/platform") return false;
-  return pathname.startsWith(href + "/");
-}
-
-function navFor(user: SessionUser): NavEntry[] {
-  const acting = Boolean(user.act_as_company_id);
-  if (user.role === "super_admin" && !acting) {
-    return [
-      {
-        type: "group",
-        id: "platform",
-        label: "平台",
-        children: [
-          { href: "/platform", label: "平台概况" },
-          { href: "/companies", label: "公司管理" },
-          { href: "/platform/voices", label: "音色管理" },
-        ],
-      },
-      {
-        type: "group",
-        id: "system",
-        label: "系统",
-        children: [
-          { href: "/audit", label: "审计日志" },
-          { href: "/settings", label: "设置" },
-        ],
-      },
-    ];
-  }
-
-  const entries: NavEntry[] = [
-    { type: "link", href: "/dashboard", label: "工作台" },
-    {
-      type: "group",
-      id: "customers",
-      label: "客户",
-      children: [
-        { href: "/customers", label: "客户" },
-        { href: "/pool", label: "公海" },
-      ],
-    },
-    {
-      type: "group",
-      id: "sales",
-      label: "销售",
-      children: [
-        { href: "/opportunities", label: "商机" },
-        { href: "/quotes", label: "报价" },
-        { href: "/tasks", label: "待办" },
-      ],
-    },
-    {
-      type: "group",
-      id: "insights",
-      label: "洞察",
-      children: [
-        { href: "/knowledge", label: "知识库" },
-        { href: "/competitors", label: "竞品" },
-        { href: "/insights", label: "分析" },
-        { href: "/reports", label: "经营报表" },
-        { href: "/uploads", label: "解析记录" },
-        { href: "/voices/records", label: "声音合成" },
-      ],
-    },
-  ];
-
-  const collab: NavLeaf[] = [{ href: "/notifications", label: "通知" }];
-  if (
-    user.role === "company_admin" ||
-    user.role === "sales_manager" ||
-    acting
-  ) {
-    collab.push({ href: "/team", label: "团队" });
-  }
-  entries.push({ type: "group", id: "collab", label: "协作", children: collab });
-
-  const system: NavLeaf[] = [];
-  if (user.role === "company_admin" || acting) {
-    system.push({ href: "/audit", label: "审计" });
-  }
-  system.push({ href: "/settings", label: "设置" });
-  entries.push({ type: "group", id: "system", label: "系统", children: system });
-
-  return entries;
-}
+const TASK_BADGE_TTL_MS = 60_000;
+type TaskBadge = { overdue: number; urgent: number; total: number };
+let taskBadgeCache: { data: TaskBadge; at: number } | null = null;
+let taskBadgeRequest: Promise<TaskBadge | null> | null = null;
+const EMPTY_TASK_BADGE: TaskBadge = { overdue: 0, urgent: 0, total: 0 };
 
 function groupContainsPath(group: Extract<NavEntry, { type: "group" }>, pathname: string) {
   return group.children.some((c) => pathActive(pathname, c.href));
@@ -262,13 +185,13 @@ function ChevronIcon({ expanded }: { expanded: boolean }) {
 
 function UserMenu() {
   const user = useSessionUser();
-  const router = useAppRouter();
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const initial = (user.name || user.phone || user.email || "?").slice(0, 1).toUpperCase();
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || loggingOut) return;
     function onPointerDown(e: MouseEvent) {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     }
@@ -281,9 +204,11 @@ function UserMenu() {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, loggingOut]);
 
   async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
     setOpen(false);
     pageCacheInvalidate();
     // 最多等 600ms：会话已在服务端优先清除，超时也直接进登录页
@@ -300,15 +225,29 @@ function UserMenu() {
 
   return (
     <div className="relative" ref={ref}>
+      {loggingOut && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/25 backdrop-blur-[1px]"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="rounded-xl bg-white px-5 py-4 text-sm font-medium text-[var(--color-text)] shadow-lg">
+            正在退出…
+          </div>
+        </div>
+      )}
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        disabled={loggingOut}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex max-w-[220px] items-center gap-2 rounded-lg border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-left transition",
-          "hover:border-[var(--color-accent)]/40 hover:bg-slate-50",
-          open && "border-[var(--color-accent)]/50 bg-slate-50"
+          "flex max-w-[220px] items-center gap-2 rounded-lg px-1 py-1 text-left transition",
+          "hover:bg-slate-50/80",
+          open && "bg-slate-50/80",
+          loggingOut && "pointer-events-none opacity-70"
         )}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-sidebar)] text-sm font-semibold text-white">
@@ -350,18 +289,28 @@ function UserMenu() {
             <AppLink
               href="/settings"
               role="menuitem"
-              onClick={() => setOpen(false)}
-              className="flex min-h-10 w-full items-center rounded-lg px-3 text-sm text-[var(--color-text)] hover:bg-slate-50"
+              onClick={() => {
+                if (loggingOut) return;
+                setOpen(false);
+              }}
+              className={cn(
+                "flex min-h-10 w-full items-center rounded-lg px-3 text-sm text-[var(--color-text)] hover:bg-slate-50",
+                loggingOut && "pointer-events-none opacity-50"
+              )}
             >
               个人设置
             </AppLink>
             <button
               type="button"
               role="menuitem"
-              onClick={logout}
-              className="flex min-h-10 w-full items-center rounded-lg px-3 text-sm text-[var(--color-danger)] hover:bg-red-50"
+              disabled={loggingOut}
+              onClick={() => void logout()}
+              className={cn(
+                "flex min-h-10 w-full items-center rounded-lg px-3 text-sm text-[var(--color-danger)] hover:bg-red-50",
+                loggingOut && "cursor-wait opacity-70"
+              )}
             >
-              退出登录
+              {loggingOut ? "退出中…" : "退出登录"}
             </button>
           </div>
         </div>
@@ -477,6 +426,29 @@ function SideNav({
 export function AppShell({
   user,
   unread = 0,
+  initialUiPrefs,
+  children,
+}: {
+  user: SessionUser;
+  unread?: number;
+  initialUiPrefs?: UiPrefs | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <SessionUserProvider
+      initialUser={user}
+      initialUiPrefs={normalizeUiPrefs(initialUiPrefs ?? DEFAULT_UI_PREFS)}
+    >
+      <AppShellFrame user={user} unread={unread}>
+        {children}
+      </AppShellFrame>
+    </SessionUserProvider>
+  );
+}
+
+function AppShellFrame({
+  user,
+  unread = 0,
   children,
 }: {
   user: SessionUser;
@@ -485,9 +457,13 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useAppRouter();
+  const { uiPrefs } = useSessionUserContext();
+  const mobileNav = uiPrefs.mobile_nav;
+  const compactMobile = mobileNav === "compact";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [unreadCount, setUnreadCount] = useState(unread);
+  const [taskBadge, setTaskBadge] = useState<TaskBadge>(EMPTY_TASK_BADGE);
   const acting = Boolean(user.act_as_company_id);
   const showCompanyChrome = user.role !== "super_admin" || acting;
   const entries = useMemo(
@@ -512,6 +488,10 @@ export function AppShell({
   useEffect(() => {
     setUnreadCount(unread);
   }, [unread]);
+
+  useEffect(() => {
+    if (compactMobile) setMobileOpen(false);
+  }, [compactMobile]);
 
   // 展开菜单表示存在导航意图，但限制预取数量，避免形成请求风暴。
   const prefetchGroup = useCallback(
@@ -546,6 +526,42 @@ export function AppShell({
     }
   }, []);
 
+  const refreshTaskBadge = useCallback(async (force = false) => {
+    if (
+      !force &&
+      taskBadgeCache &&
+      Date.now() - taskBadgeCache.at < TASK_BADGE_TTL_MS
+    ) {
+      setTaskBadge(taskBadgeCache.data);
+      return;
+    }
+    try {
+      taskBadgeRequest ??= fetch("/api/tasks/badge")
+        .then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || !json.data) return null;
+          const overdue = Number(json.data.overdue) || 0;
+          const urgent = Number(json.data.urgent) || 0;
+          return {
+            overdue,
+            urgent,
+            total: overdue + urgent,
+          } satisfies TaskBadge;
+        })
+        .catch(() => null)
+        .finally(() => {
+          taskBadgeRequest = null;
+        });
+      const data = await taskBadgeRequest;
+      if (data) {
+        taskBadgeCache = { data, at: Date.now() };
+        setTaskBadge(data);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     void refreshUnread();
     function onChanged() {
@@ -554,14 +570,36 @@ export function AppShell({
     }
     window.addEventListener("crm:notifications-changed", onChanged);
     function onVisible() {
-      if (document.visibilityState === "visible") void refreshUnread();
+      if (document.visibilityState === "visible") {
+        void refreshUnread();
+        if (compactMobile) void refreshTaskBadge();
+      }
     }
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("crm:notifications-changed", onChanged);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshUnread]);
+  }, [refreshUnread, refreshTaskBadge, compactMobile]);
+
+  useEffect(() => {
+    if (!compactMobile) return;
+    void refreshTaskBadge();
+    function onChanged() {
+      taskBadgeCache = null;
+      void refreshTaskBadge(true);
+    }
+    window.addEventListener("crm:tasks-changed", onChanged);
+    return () => window.removeEventListener("crm:tasks-changed", onChanged);
+  }, [compactMobile, refreshTaskBadge]);
+
+  useEffect(() => {
+    if (!compactMobile) return;
+    if (pathname.startsWith("/tasks")) {
+      taskBadgeCache = null;
+      void refreshTaskBadge(true);
+    }
+  }, [compactMobile, pathname, refreshTaskBadge]);
 
   async function exitCompanyView() {
     setExiting(true);
@@ -583,11 +621,18 @@ export function AppShell({
     onPrefetchGroup: prefetchGroup,
   };
 
+  const bottomItems = [
+    { href: "/dashboard", label: "工作台" },
+    { href: "/customers", label: "客户" },
+    { href: "/apps", label: "功能" },
+    { href: "/tasks", label: "待办" },
+    { href: "/knowledge", label: "知识库" },
+  ];
+
   return (
-    <SessionUserProvider initialUser={user}>
     <div className="min-h-screen md:flex">
       <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-20 md:flex md:w-52 md:flex-col md:overflow-hidden bg-[var(--color-sidebar)] text-white">
-        <div className="shrink-0 px-4 py-5 border-b border-white/10">
+        <div className="shrink-0 border-b border-white/10 px-4 py-5">
           <div className="text-lg font-bold tracking-tight">凯艺销售CRM</div>
           <div className="mt-1 text-xs text-white/60">销售客户关系管理</div>
         </div>
@@ -596,7 +641,7 @@ export function AppShell({
         </div>
       </aside>
 
-      {mobileOpen && (
+      {!compactMobile && mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <button
             type="button"
@@ -643,30 +688,38 @@ export function AppShell({
             acting ? "top-10" : "top-0"
           )}
         >
-          <div className="md:hidden">
-            <button
-              type="button"
-              className="btn btn-secondary min-h-9 px-3"
-              aria-expanded={mobileOpen}
-              aria-label="菜单"
-              onClick={() => setMobileOpen(true)}
-            >
-              菜单
-            </button>
-          </div>
+          {!compactMobile && (
+            <div className="md:hidden">
+              <button
+                type="button"
+                className="btn btn-secondary min-h-9 px-3"
+                aria-expanded={mobileOpen}
+                aria-label="菜单"
+                onClick={() => setMobileOpen(true)}
+              >
+                菜单
+              </button>
+            </div>
+          )}
           {showBack && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="min-h-9 px-3"
-              onClick={() => router.back()}
-            >
-              返回
-            </Button>
+            <div className="hidden md:block">
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-9 px-3"
+                onClick={() => router.back()}
+              >
+                返回
+              </Button>
+            </div>
           )}
           <div className="flex-1" />
-          <AppLink href="/notifications" className="btn btn-secondary min-h-9 relative">
-            通知
+          <AppLink
+            href="/notifications"
+            className="btn btn-secondary relative flex min-h-10 w-10 items-center justify-center px-0"
+            aria-label={unreadCount > 0 ? `通知，${unreadCount} 条未读` : "通知"}
+          >
+            <FeatureGridIcon href="/notifications" size={26} />
             {unreadCount > 0 && (
               <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] text-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
@@ -677,40 +730,84 @@ export function AppShell({
         </header>
         <main
           className={cn(
-            "flex-1 p-4 md:p-6",
-            showCompanyChrome && "pb-24 md:pb-6"
+            "min-w-0 flex-1 overflow-x-clip p-4 md:p-6",
+            showCompanyChrome && compactMobile && "pb-24"
           )}
         >
           {children}
         </main>
       </div>
 
-      {showCompanyChrome && (
-        <nav className="fixed inset-x-0 bottom-0 z-30 flex min-h-14 border-t border-[var(--color-border)] bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
-          {[
-            { href: "/dashboard", label: "工作台" },
-            { href: "/customers", label: "客户" },
-            { href: "/pool", label: "公海" },
-            { href: "/tasks", label: "待办" },
-            { href: "/notifications", label: "通知" },
-          ].map((item) => {
-            const active = pathname.startsWith(item.href);
+      {showCompanyChrome && compactMobile && (
+        <nav className="fixed inset-x-0 bottom-0 z-30 flex min-h-[3.75rem] border-t border-[var(--color-border)] bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
+          {bottomItems.map((item) => {
+            const active = pathActive(pathname, item.href);
+            const isTasks = item.href === "/tasks";
+            const alertTotal = isTasks ? taskBadge.total : 0;
+            const alertOverdue = isTasks && taskBadge.overdue > 0;
             return (
               <AppLink
                 key={item.href}
                 href={item.href}
+                navFilters={
+                  isTasks && alertTotal > 0
+                    ? {
+                        urgency: alertOverdue ? "overdue" : "urgent",
+                        status: "pending",
+                      }
+                    : undefined
+                }
                 className={cn(
-                  "flex flex-1 flex-col items-center justify-center min-h-14 text-xs",
-                  active ? "text-[var(--color-accent)] font-semibold" : "text-[var(--color-muted)]"
+                  "relative flex min-h-[3.75rem] flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px]",
+                  active
+                    ? "font-semibold text-[var(--color-accent)]"
+                    : "text-[var(--color-muted)]"
                 )}
+                aria-label={
+                  isTasks && alertTotal > 0
+                    ? `待办，${alertOverdue ? `${taskBadge.overdue} 条逾期` : ""}${
+                        taskBadge.urgent > 0
+                          ? `${alertOverdue ? "，" : ""}${taskBadge.urgent} 条今日截止`
+                          : ""
+                      }`
+                    : undefined
+                }
               >
-                {item.label}
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-3 bottom-0 h-0.5 rounded-t-full bg-[var(--color-accent)]"
+                  />
+                )}
+                <span
+                  className={cn(
+                    "relative flex h-8 w-8 items-center justify-center rounded-xl transition",
+                    active
+                      ? "bg-[var(--color-accent)]/12 text-[var(--color-accent)]"
+                      : "text-[var(--color-muted)]"
+                  )}
+                >
+                  <FeatureGridIcon href={item.href} size={22} />
+                  {alertTotal > 0 && (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-bold leading-none text-white",
+                        alertOverdue ? "bg-[#ef4444]" : "bg-amber-500"
+                      )}
+                    >
+                      {alertTotal > 99 ? "99+" : alertTotal}
+                    </span>
+                  )}
+                </span>
+                <span className={cn(active && "text-[var(--color-accent)]")}>
+                  {item.label}
+                </span>
               </AppLink>
             );
           })}
         </nav>
       )}
     </div>
-    </SessionUserProvider>
   );
 }

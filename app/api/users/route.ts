@@ -11,6 +11,7 @@ import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { normalizePhone, normalizeEmail, isValidUserPhone } from "@/lib/utils";
 import { parsePageParams, resolvePagination } from "@/lib/pagination";
 import type { UserRole } from "@/types";
+import { assertStrongPassword } from "@/lib/security";
 
 export async function GET(request: NextRequest) {
   try {
@@ -99,15 +100,19 @@ export async function GET(request: NextRequest) {
           : [user.company_id, user.id];
       const whereSql =
         role === "company_admin"
-          ? `WHERE company_id = $1`
-          : `WHERE company_id = $1 AND (id = $2 OR manager_id = $2)`;
-      const fromSql = `FROM users ${whereSql}`;
+          ? `WHERE u.company_id = $1`
+          : `WHERE u.company_id = $1 AND (u.id = $2 OR u.manager_id = $2)`;
+      const fromSql = `FROM users u
+                 LEFT JOIN users m ON m.id = u.manager_id
+                 ${whereSql}`;
+      const selectSql = `SELECT u.id, u.company_id, u.manager_id, u.role, u.name, u.email, u.phone,
+                u.status, u.created_at, u.last_login_at, m.name AS manager_name`;
 
       if (!paginate) {
         const result = await pool.query(
-          `SELECT id, company_id, manager_id, role, name, email, phone, status, created_at, last_login_at
+          `${selectSql}
            ${fromSql}
-           ORDER BY id DESC`,
+           ORDER BY u.id DESC`,
           params
         );
         return jsonOk(result.rows);
@@ -121,9 +126,9 @@ export async function GET(request: NextRequest) {
       const { meta, offset, limit } = resolvePagination(total, page, pageSize);
       const listParams = [...params, limit, offset];
       const result = await pool.query(
-        `SELECT id, company_id, manager_id, role, name, email, phone, status, created_at, last_login_at
+        `${selectSql}
          ${fromSql}
-         ORDER BY id DESC
+         ORDER BY u.id DESC
          LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
         listParams
       );
@@ -144,9 +149,10 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim();
     const email = normalizeEmail(body.email);
     const phone = normalizePhone(body.phone);
-    const password = String(body.password || "Sales123!");
+    const password = String(body.password || "");
 
     if (!name || !phone || !role) return jsonError("姓名、手机号、角色必填");
+    assertStrongPassword(password);
     if (!isValidUserPhone(phone)) return jsonError("手机号格式不正确", 400);
 
     if (role === "sales_manager" && !canCreateSalesManager(user)) {
@@ -170,20 +176,33 @@ export async function POST(request: NextRequest) {
       if (emailDup.rows[0]) return jsonError("该邮箱已被其他账号使用", 400);
     }
 
-    const managerId =
-      role === "sales"
-        ? body.manager_id
-          ? Number(body.manager_id)
-          : user.role === "sales_manager"
-            ? user.id
-            : null
-        : null;
+    let managerId: number | null = null;
+    if (role === "sales") {
+      if (user.role === "sales_manager") {
+        managerId = user.id;
+      } else {
+        const rawManagerId = Number(body.manager_id);
+        if (!Number.isFinite(rawManagerId) || rawManagerId <= 0) {
+          return jsonError("创建销售须指定所属销售经理");
+        }
+        const mgr = await pool.query(
+          `SELECT id FROM users
+           WHERE id = $1 AND company_id = $2 AND status = 'active' AND role = 'sales_manager'
+           LIMIT 1`,
+          [rawManagerId, user.company_id]
+        );
+        if (!mgr.rows[0]) {
+          return jsonError("所属销售经理无效或不属于本公司");
+        }
+        managerId = rawManagerId;
+      }
+    }
 
     const passwordHash = await hashPassword(password);
     const result = await pool.query(
       `INSERT INTO users
-        (company_id, manager_id, role, name, email, phone, password_hash, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
+        (company_id, manager_id, role, name, email, phone, password_hash, status, must_change_password)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'active',TRUE)
        RETURNING id, company_id, manager_id, role, name, email, phone, status, created_at`,
       [
         user.company_id,

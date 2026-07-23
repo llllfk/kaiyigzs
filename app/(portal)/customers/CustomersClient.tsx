@@ -24,6 +24,8 @@ import {
 } from "@/types";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { CardListSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
+import { useViewMode } from "@/components/ui/ViewModeToggle";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 import { downloadExport, exportStamp } from "@/lib/download-export";
 import {
   pageCacheFetchJson,
@@ -81,7 +83,7 @@ export default function CustomersClient({
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [viewMode, changeViewMode] = useViewMode("crm:customers-view");
   const pointerDown = useRef<{ x: number; y: number } | null>(null);
   const hasRowsRef = useRef(initialList.length > 0);
   hasRowsRef.current = list.length > 0;
@@ -94,30 +96,6 @@ export default function CustomersClient({
       meta: initialMeta,
     });
   }, [initialList, initialMeta]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("crm:customers-view");
-      if (saved === "table" || saved === "card") {
-        setViewMode(saved);
-        return;
-      }
-      if (window.matchMedia("(max-width: 767px)").matches) {
-        setViewMode("card");
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  function changeViewMode(mode: "table" | "card") {
-    setViewMode(mode);
-    try {
-      localStorage.setItem("crm:customers-view", mode);
-    } catch {
-      /* ignore */
-    }
-  }
 
   const load = useCallback(
     async (opts?: {
@@ -393,84 +371,96 @@ export default function CustomersClient({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="w-36 max-w-full shrink-0">
-          <Select
-            value={status}
-            onChange={onStatusChange}
-            placeholder="全部状态"
-            options={[
-              { value: "", label: "全部状态" },
-              ...CUSTOMER_STATUS_OPTIONS,
-            ]}
-          />
-        </div>
-        <div className="w-64 max-w-full shrink-0">
-          <input
-            className="input"
-            placeholder="搜索公司 / 客户名 / 手机号"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-        </div>
-        {canOwnerSearch ? (
-          <div className="relative w-44 max-w-full shrink-0">
+      <CollapsibleListFilters
+        activeCount={
+          (status ? 1 : 0) +
+          (canOwnerSearch && ownerQ.trim() ? 1 : 0) +
+          (createdFrom ? 1 : 0) +
+          (createdTo ? 1 : 0)
+        }
+        primary={
+          <div className="w-full min-w-0 md:w-64 md:max-w-full md:shrink-0">
             <input
-              className={`input ${ownerQ ? "pr-9" : ""}`}
-              placeholder="搜索负责人"
-              value={ownerQ}
-              onChange={(e) => setOwnerQ(e.target.value)}
+              className="input w-full"
+              placeholder="搜索公司 / 客户名 / 手机号"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") onSearch();
               }}
             />
-            {ownerQ ? (
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
-                aria-label="清除负责人搜索"
-                title="清除"
-                onClick={() => {
-                  setOwnerQ("");
-                  if (page === 1) void load({ ownerKeyword: "", page: 1 });
-                  else setPage(1);
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path
-                    d="M6 6l12 12M18 6 6 18"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            ) : null}
           </div>
-        ) : null}
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={createdFrom}
-            onChange={setCreatedFrom}
-            placeholder="起始日"
-            allowClear
-          />
-        </div>
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={createdTo}
-            onChange={setCreatedTo}
-            placeholder="结束日"
-            allowClear
-          />
-        </div>
-        <Button variant="secondary" onClick={onSearch}>
-          搜索
-        </Button>
-      </div>
+        }
+        secondary={
+          <>
+            <div className="w-36 max-w-full shrink-0">
+              <Select
+                value={status}
+                onChange={onStatusChange}
+                placeholder="全部状态"
+                options={[
+                  { value: "", label: "全部状态" },
+                  ...CUSTOMER_STATUS_OPTIONS,
+                ]}
+              />
+            </div>
+            {canOwnerSearch ? (
+              <div className="relative w-44 max-w-full shrink-0">
+                <input
+                  className={`input ${ownerQ ? "pr-9" : ""}`}
+                  placeholder="搜索负责人"
+                  value={ownerQ}
+                  onChange={(e) => setOwnerQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onSearch();
+                  }}
+                />
+                {ownerQ ? (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
+                    aria-label="清除负责人搜索"
+                    title="清除"
+                    onClick={() => {
+                      setOwnerQ("");
+                      if (page === 1) void load({ ownerKeyword: "", page: 1 });
+                      else setPage(1);
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M6 6l12 12M18 6 6 18"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={createdFrom}
+                onChange={setCreatedFrom}
+                placeholder="起始日"
+                allowClear
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={createdTo}
+                onChange={setCreatedTo}
+                placeholder="结束日"
+                allowClear
+              />
+            </div>
+            <Button variant="secondary" onClick={onSearch}>
+              搜索
+            </Button>
+          </>
+        }
+      />
 
       <Modal
         open={open}
@@ -566,7 +556,7 @@ export default function CustomersClient({
             <table className="w-full min-w-[74rem] text-sm">
               <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                 <tr>
-                  <th className="w-14 px-4 py-3 font-medium">#</th>
+                  <th className="w-14 px-4 py-3 font-medium">序号</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">状态</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">客户公司</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">客户名</th>
@@ -589,7 +579,7 @@ export default function CustomersClient({
                   </tr>
                 )}
                 {list.map((c, i) => {
-                  const href = `/customers/${c.id}`;
+                  const href = `/customers/${c.public_id || c.id}`;
                   const goDetail = (e: React.MouseEvent) => {
                     const start = pointerDown.current;
                     const dragged =
@@ -671,7 +661,7 @@ export default function CustomersClient({
               return (
                 <AppLink
                   key={c.id}
-                  href={`/customers/${c.id}`}
+                  href={`/customers/${c.public_id || c.id}`}
                   className="surface card-interactive flex h-full w-full flex-col p-4"
                 >
                   <div className="flex min-w-0 items-start gap-2">

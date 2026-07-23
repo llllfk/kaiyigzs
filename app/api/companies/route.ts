@@ -13,6 +13,8 @@ import {
   type CompanyConfig,
 } from "@/lib/company-config";
 import { normalizePhone, normalizeEmail, isValidUserPhone } from "@/lib/utils";
+import { assertStrongPassword } from "@/lib/security";
+import { decryptCompanyConfig, encryptCompanyConfig } from "@/lib/config-crypto";
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,11 +60,12 @@ export async function POST(request: NextRequest) {
     const adminName = String(body.admin_name || "").trim();
     const adminPhone = normalizePhone(body.admin_phone);
     const adminEmail = normalizeEmail(body.admin_email);
-    const adminPassword = String(body.admin_password || "Admin123!");
+    const adminPassword = String(body.admin_password || "");
 
     if (!name || !adminName || !adminPhone) {
       return jsonError("公司名称、管理员姓名与手机号必填");
     }
+    assertStrongPassword(adminPassword);
     if (!isValidUserPhone(adminPhone)) return jsonError("管理员手机号格式不正确");
 
     const phoneDup = await pool.query(`SELECT id FROM users WHERE phone = $1 LIMIT 1`, [
@@ -90,8 +93,8 @@ export async function POST(request: NextRequest) {
       const passwordHash = await hashPassword(adminPassword);
       const admin = await client.query(
         `INSERT INTO users
-          (company_id, role, name, email, phone, password_hash, status)
-         VALUES ($1, 'company_admin', $2, $3, $4, $5, 'active')
+          (company_id, role, name, email, phone, password_hash, status, must_change_password)
+         VALUES ($1, 'company_admin', $2, $3, $4, $5, 'active', TRUE)
          RETURNING id, company_id, role, name, email, phone, status`,
         [companyId, adminName, adminEmail, adminPhone, passwordHash]
       );
@@ -146,7 +149,7 @@ export async function PATCH(request: NextRequest) {
     ]);
     if (!existing.rows[0]) return jsonError("公司不存在", 404);
 
-    const prev = (existing.rows[0].config || {}) as CompanyConfig;
+    const prev = decryptCompanyConfig((existing.rows[0].config || {}) as CompanyConfig & Record<string, unknown>);
     const prevCoze = prev.coze || {};
     const nextCoze = { ...prevCoze };
 
@@ -214,7 +217,7 @@ export async function PATCH(request: NextRequest) {
        SET config = $1::jsonb, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2
        RETURNING *`,
-      [JSON.stringify(nextConfig), companyId]
+      [JSON.stringify(encryptCompanyConfig(nextConfig as CompanyConfig & Record<string, unknown>)), companyId]
     );
 
     const volcConfigured = Boolean(String(nextVolc?.api_key || "").trim());

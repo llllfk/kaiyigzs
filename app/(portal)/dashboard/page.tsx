@@ -44,6 +44,26 @@ function formatCny(n: number) {
   })}`;
 }
 
+/** 手机窄格：大额用万/亿，避免撑破本月卡片 */
+function formatCnyCompact(n: number) {
+  const abs = Math.abs(n);
+  if (abs >= 100_000_000) {
+    const v = n / 100_000_000;
+    return `¥${v.toLocaleString("zh-CN", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}亿`;
+  }
+  if (abs >= 10_000) {
+    const v = n / 10_000;
+    return `¥${v.toLocaleString("zh-CN", {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    })}万`;
+  }
+  return formatCny(n);
+}
+
 const STAGE_BAR: Record<OpportunityStage, string> = {
   lead: "bg-slate-400",
   contact: "bg-sky-500",
@@ -145,6 +165,50 @@ function AdminHero({
   monthFrom: string;
   monthTo: string;
 }) {
+  const monthMetrics = (
+    <>
+      <AdminMetric
+        href="/customers"
+        label="新增客户"
+        value={core.newCustN}
+        dense
+        navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
+      />
+      <AdminMetric
+        href="/opportunities"
+        label="线索"
+        value={core.newLeadN}
+        dense
+        navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
+      />
+      <AdminMetric
+        href="/opportunities"
+        label="成交"
+        value={core.wonN}
+        dense
+        navFilters={{
+          stages: ["won"],
+          createdFrom: monthFrom,
+          createdTo: monthTo,
+          dateField: "updated_at",
+        }}
+      />
+      <AdminMetric
+        href="/opportunities"
+        label="成交金额"
+        value={formatCnyCompact(core.wonAmount)}
+        dense
+        compact
+        navFilters={{
+          stages: ["won"],
+          createdFrom: monthFrom,
+          createdTo: monthTo,
+          dateField: "updated_at",
+        }}
+      />
+    </>
+  );
+
   return (
     <section className="relative overflow-hidden rounded-[var(--radius)] border border-[var(--color-border)] bg-[linear-gradient(135deg,#1e3a5f_0%,#274b7a_48%,#2563eb_100%)] px-5 py-5 text-white shadow-[var(--shadow)] md:px-6">
       <div
@@ -152,66 +216,82 @@ function AdminHero({
         aria-hidden
       />
       <div className="relative">
-        <div>
-          <div className="text-xs font-medium tracking-wide text-white/70">
-            公司管理员 · {user.name}
+        {/* 手机：标题左、本月右；电脑：仅标题 */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-medium tracking-wide text-white/70">
+              公司管理员 · {user.name}
+            </div>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">公司经营</h1>
+            <AppLink
+              href="/insights"
+              className="mt-2 inline-block text-xs text-white/65 underline-offset-2 hover:text-white hover:underline"
+            >
+              查看完整分析 →
+            </AppLink>
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">公司经营</h1>
-          <p className="mt-1.5 max-w-lg text-sm text-white/75">
-            盯团队产能、公海与风险；销售跟进请到客户 / 待办页。
-          </p>
-          <AppLink
-            href="/insights"
-            className="mt-2 inline-block text-xs text-white/65 underline-offset-2 hover:text-white hover:underline"
-          >
-            查看完整分析 →
-          </AppLink>
+          <div className="w-[min(14rem,56%)] shrink-0 rounded-xl border border-white/20 bg-white/10 p-2.5 backdrop-blur-md md:hidden">
+            <div className="mb-1.5 text-[10px] font-medium tracking-wide text-white/70">
+              本月
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">{monthMetrics}</div>
+          </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 border-t border-white/15 pt-4">
-          <AdminMetric href="/customers" label="私海" value={core.privateN} />
-          <AdminMetric href="/pool" label="公海" value={core.poolN} />
-          <AdminMetric href="/team" label="业务成员" value={core.teamN} />
-          <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 py-0 pl-2.5 pr-3 backdrop-blur-md">
-            <span className="shrink-0 text-[11px] font-medium leading-none tracking-wide text-white/70">
-              本月
-            </span>
-            <span className="h-8 w-px shrink-0 bg-white/20" aria-hidden />
-            <div className="flex gap-x-8">
-              <AdminMetric
-                href="/customers"
-                label="新增客户"
-                value={core.newCustN}
-                navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
-              />
-              <AdminMetric
-                href="/opportunities"
-                label="线索"
-                value={core.newLeadN}
-                navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
-              />
-              <AdminMetric
-                href="/opportunities"
-                label="成交"
-                value={core.wonN}
-                navFilters={{
-                  stages: ["won"],
-                  createdFrom: monthFrom,
-                  createdTo: monthTo,
-                  dateField: "updated_at",
-                }}
-              />
-              <AdminMetric
-                href="/opportunities"
-                label="成交金额"
-                value={formatCny(core.wonAmount)}
-                navFilters={{
-                  stages: ["won"],
-                  createdFrom: monthFrom,
-                  createdTo: monthTo,
-                  dateField: "updated_at",
-                }}
-              />
+        <div className="mt-5 border-t border-white/15 pt-4">
+          {/* 手机：仅核心三项 */}
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 md:hidden">
+            <AdminMetric href="/customers" label="私海" value={core.privateN} />
+            <AdminMetric href="/pool" label="公海" value={core.poolN} />
+            <AdminMetric href="/team" label="业务成员" value={core.teamN} />
+          </div>
+
+          {/* 电脑：保持原横排 */}
+          <div className="hidden flex-wrap items-center gap-x-8 gap-y-3 md:flex">
+            <AdminMetric href="/customers" label="私海" value={core.privateN} />
+            <AdminMetric href="/pool" label="公海" value={core.poolN} />
+            <AdminMetric href="/team" label="业务成员" value={core.teamN} />
+            <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 py-0 pl-2.5 pr-3 backdrop-blur-md">
+              <span className="shrink-0 text-[11px] font-medium leading-none tracking-wide text-white/70">
+                本月
+              </span>
+              <span className="h-8 w-px shrink-0 bg-white/20" aria-hidden />
+              <div className="flex gap-x-8">
+                <AdminMetric
+                  href="/customers"
+                  label="新增客户"
+                  value={core.newCustN}
+                  navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
+                />
+                <AdminMetric
+                  href="/opportunities"
+                  label="线索"
+                  value={core.newLeadN}
+                  navFilters={{ createdFrom: monthFrom, createdTo: monthTo }}
+                />
+                <AdminMetric
+                  href="/opportunities"
+                  label="成交"
+                  value={core.wonN}
+                  navFilters={{
+                    stages: ["won"],
+                    createdFrom: monthFrom,
+                    createdTo: monthTo,
+                    dateField: "updated_at",
+                  }}
+                />
+                <AdminMetric
+                  href="/opportunities"
+                  label="成交金额"
+                  value={formatCny(core.wonAmount)}
+                  navFilters={{
+                    stages: ["won"],
+                    createdFrom: monthFrom,
+                    createdTo: monthTo,
+                    dateField: "updated_at",
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -343,44 +423,39 @@ function AdminTeamTable({ rows }: { rows: AdminTeamRow[] }) {
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-[var(--color-border)]">
+            {rows.map((row) => (
+              <tr key={row.id} className="border-t border-[var(--color-border)]">
                 <td className="py-2.5 pr-2">
-                  <div className="truncate font-medium" title={r.name}>
-                    {r.name}
-                  </div>
+                  <div className="truncate font-medium" title={row.name}>{row.name}</div>
                   <div className="truncate text-xs text-[var(--color-muted)]">
-                    {ROLE_LABELS[r.role as UserRole] || r.role}
+                    {ROLE_LABELS[row.role as UserRole] || row.role}
                   </div>
                 </td>
                 <td className="py-2.5 text-right">
                   <AppLink
                     href="/customers"
-                    navFilters={{ ownerQ: r.name }}
-                    className="tabular-nums text-[var(--color-accent)] hover:underline"
+                    navFilters={{ ownerQ: row.name }}
+                    className="text-base font-bold tabular-nums text-[var(--color-accent)] hover:underline"
                   >
-                    {r.customers}
+                    {row.customers}
                   </AppLink>
                 </td>
                 <td className="py-2.5 text-right">
                   <AppLink
                     href="/opportunities"
-                    navFilters={{
-                      ownerQ: r.name,
-                      stages: ["lead", "contact", "proposal"],
-                    }}
-                    className="tabular-nums text-[var(--color-accent)] hover:underline"
+                    navFilters={{ ownerQ: row.name, stages: ["lead", "contact", "proposal"] }}
+                    className="text-base font-bold tabular-nums text-[var(--color-accent)] hover:underline"
                   >
-                    {r.open_opps}
+                    {row.open_opps}
                   </AppLink>
                 </td>
                 <td className="py-2.5 text-right">
                   <AppLink
                     href="/tasks"
-                    navFilters={{ ownerQ: r.name, status: "pending" }}
-                    className="tabular-nums text-[var(--color-accent)] hover:underline"
+                    navFilters={{ ownerQ: row.name, status: "pending" }}
+                    className="text-base font-bold tabular-nums text-[var(--color-accent)] hover:underline"
                   >
-                    {r.open_tasks}
+                    {row.open_tasks}
                   </AppLink>
                 </td>
               </tr>
@@ -441,16 +516,47 @@ function AdminMetric({
   label,
   value,
   navFilters,
+  compact,
+  dense,
 }: {
   href: string;
   label: string;
   value: number | string;
   navFilters?: ListNavFilters;
+  /** 仅手机窄格用：长金额略缩小 */
+  compact?: boolean;
+  /** 右上角本月块：更紧凑 */
+  dense?: boolean;
 }) {
+  const longAmount =
+    compact && typeof value === "string" && value.length > 6;
   return (
-    <AppLink href={href} navFilters={navFilters} className="group shrink-0">
-      <div className="text-xs text-white/65 group-hover:text-white/85">{label}</div>
-      <div className="mt-0.5 text-2xl font-bold tabular-nums tracking-tight text-white">
+    <AppLink
+      href={href}
+      navFilters={navFilters}
+      className={compact || dense ? "group min-w-0" : "group shrink-0"}
+    >
+      <div
+        className={
+          dense
+            ? "text-[10px] leading-none text-white/65 group-hover:text-white/85"
+            : "text-xs text-white/65 group-hover:text-white/85"
+        }
+      >
+        {label}
+      </div>
+      <div
+        className={`mt-0.5 font-bold tabular-nums tracking-tight text-white ${
+          dense
+            ? longAmount
+              ? "break-all text-sm leading-tight"
+              : "text-base leading-tight"
+            : longAmount
+              ? "text-lg leading-tight"
+              : "text-2xl"
+        }`}
+        title={typeof value === "string" ? value : undefined}
+      >
         {value}
       </div>
     </AppLink>
@@ -509,11 +615,6 @@ async function SalesDashboard({ user }: { user: SessionUser }) {
             <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
               {isManager ? "团队工作台" : "今天的工作台"}
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-white/75">
-              {isManager
-                ? "跟进团队客户、商机与待办；深度分析请到分析页。"
-                : "待办、商机与关键洞察一眼看清；深度分析请到分析页。"}
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <AppLink
@@ -690,7 +791,7 @@ async function SalesTasksPanel({
                         </span>
                       )}
                       <span className={due.className}>{due.label}</span>
-                      {t.status !== "done" && t.status !== "cancelled" ? (
+                      {t.status === "pending" ? (
                         <StatusTag kind="task_urgency" value={urgency} />
                       ) : null}
                     </div>
@@ -750,7 +851,7 @@ async function SalesSecondaryPanels({
   const [recentCustomers, painPoints, competitorHits, recentInsights] =
     await Promise.all([
       pool.query(
-        `SELECT id, company_name, name, industry, updated_at FROM customers c
+        `SELECT id, public_id, company_name, name, industry, updated_at FROM customers c
          WHERE ${customerFilterSql}
          ORDER BY updated_at DESC LIMIT 6`,
         customerFilterParams
@@ -772,7 +873,8 @@ async function SalesSecondaryPanels({
         competitorFilter.params
       ),
       pool.query(
-        `SELECT i.id, i.kind, i.summary, i.created_at, c.name AS customer_name, i.customer_id
+        `SELECT i.id, i.kind, i.summary, i.created_at, c.name AS customer_name,
+                i.customer_id, c.public_id AS customer_public_id
          FROM ai_insights i
          LEFT JOIN customers c ON c.id = i.customer_id
          WHERE ${insightFilter.sql}
@@ -859,6 +961,7 @@ async function SalesSecondaryPanels({
                     summary: string | null;
                     customer_name?: string;
                     customer_id?: number;
+                    customer_public_id?: string;
                     created_at: string;
                   }) => (
                     <li
@@ -873,7 +976,7 @@ async function SalesSecondaryPanels({
                           <>
                             <span>·</span>
                             <AppLink
-                              href={`/customers/${ins.customer_id}`}
+                              href={`/customers/${ins.customer_public_id || ins.customer_id}`}
                               className="text-[var(--color-accent)] hover:underline"
                             >
                               {ins.customer_name || "客户"}
@@ -908,6 +1011,7 @@ async function SalesSecondaryPanels({
           {recentCustomers.rows.map(
             (c: {
               id: number;
+              public_id: string;
               company_name: string | null;
               name: string;
               industry: string | null;
@@ -915,7 +1019,7 @@ async function SalesSecondaryPanels({
             }) => (
               <li key={c.id}>
                 <AppLink
-                  href={`/customers/${c.id}`}
+                  href={`/customers/${c.public_id || c.id}`}
                   className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] px-3 py-2.5 transition hover:border-sky-300 hover:bg-sky-50/40"
                 >
                   <div className="min-w-0">

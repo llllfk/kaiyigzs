@@ -3,6 +3,7 @@
  */
 
 import pool from "@/lib/db";
+import { decryptCompanyConfig } from "@/lib/config-crypto";
 
 export type CozeCredentials = {
   apiKey: string;
@@ -20,7 +21,8 @@ export async function resolveCozeCredentials(
 
   if (companyId) {
     const res = await pool.query(`SELECT config FROM companies WHERE id = $1`, [companyId]);
-    const coze = (res.rows[0]?.config as { coze?: Record<string, unknown> } | null)?.coze;
+    const config = decryptCompanyConfig((res.rows[0]?.config || {}) as Record<string, unknown>);
+    const coze = (config as { coze?: Record<string, unknown> }).coze;
     const companyBot = String(coze?.bot_id || "").trim();
     // 共用全局 PAT；公司可覆盖 api_key（一般不填）
     const companyKey = String(coze?.api_key || "").trim();

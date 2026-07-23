@@ -20,6 +20,7 @@ import {
   syncOpportunityAmountFromQuotes,
   type QuoteItemInput,
 } from "@/lib/quotes";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -35,7 +36,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    const id = Number((await ctx.params).id);
+    const resolved = await resolvePublicRecordId("quotes", (await ctx.params).id);
+    if (!resolved) return jsonError("报价不存在", 404);
+    const id = Number(resolved.id);
     const quote = await getOwnedQuote(user.id, user.company_id, id);
     if (!quote) return jsonError("报价不存在", 404);
     await assertCanAccessCustomer(user, Number(quote.customer_id));
@@ -85,7 +88,9 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    const id = Number((await ctx.params).id);
+    const resolved = await resolvePublicRecordId("quotes", (await ctx.params).id);
+    if (!resolved) return jsonError("报价不存在", 404);
+    const id = Number(resolved.id);
     const quote = await getOwnedQuote(user.id, user.company_id, id);
     if (!quote) return jsonError("报价不存在", 404);
     await assertCanAccessCustomer(user, Number(quote.customer_id));
@@ -131,7 +136,9 @@ export async function DELETE(_request: NextRequest, ctx: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    const id = Number((await ctx.params).id);
+    const resolved = await resolvePublicRecordId("quotes", (await ctx.params).id);
+    if (!resolved) return jsonError("报价不存在", 404);
+    const id = Number(resolved.id);
     const quote = await getOwnedQuote(user.id, user.company_id, id);
     if (!quote) return jsonError("报价不存在", 404);
     await assertCanAccessCustomer(user, Number(quote.customer_id));
@@ -178,7 +185,9 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    const id = Number((await ctx.params).id);
+    const resolved = await resolvePublicRecordId("quotes", (await ctx.params).id);
+    if (!resolved) return jsonError("报价不存在", 404);
+    const id = Number(resolved.id);
     const quote = await getOwnedQuote(user.id, user.company_id, id);
     if (!quote) return jsonError("报价不存在", 404);
     await assertCanAccessCustomer(user, Number(quote.customer_id));

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -38,6 +38,7 @@ export function useUi() {
 }
 
 export function UiProvider({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmState, setConfirmState] = useState<
     (ConfirmOptions & { resolve: (v: boolean) => void }) | null
@@ -46,6 +47,8 @@ export function UiProvider({ children }: { children: React.ReactNode }) {
   const removeToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  useEffect(() => setMounted(true), []);
 
   const toast = useCallback(
     (opts: { kind?: ToastKind; title: string; description?: string }) => {
@@ -87,8 +90,8 @@ export function UiProvider({ children }: { children: React.ReactNode }) {
   return (
     <UiContext.Provider value={value}>
       {children}
-      <ToastViewport toasts={toasts} onClose={removeToast} />
-      {confirmState && (
+      {mounted && <ToastViewport toasts={toasts} onClose={removeToast} />}
+      {mounted && confirmState && (
         <ConfirmDialog
           title={confirmState.title}
           description={confirmState.description}

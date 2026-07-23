@@ -8,7 +8,9 @@ import {
   setSessionCookie,
   hashPassword,
   verifyPassword,
+  revokeUserSessions,
 } from "@/lib/auth";
+import { assertStrongPassword } from "@/lib/security";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { normalizePhone, normalizeEmail, isValidUserPhone } from "@/lib/utils";
 import { writeAuditLog } from "@/lib/audit";
@@ -16,6 +18,8 @@ import {
   notificationTypesForUser,
   normalizeNotificationPrefs,
 } from "@/lib/notification-prefs";
+import { normalizeUiPrefs } from "@/lib/ui-prefs";
+import { ensureUiPrefsColumn } from "@/lib/ui-prefs.server";
 import type { SessionUser } from "@/types";
 
 export async function GET() {
@@ -24,11 +28,13 @@ export async function GET() {
   const user = await loadUserById(session.id);
   if (!user) return jsonError("未登录", 401);
 
+  await ensureUiPrefsColumn();
   const prefRes = await pool.query(
-    `SELECT notification_prefs FROM users WHERE id = $1`,
+    `SELECT notification_prefs, ui_prefs FROM users WHERE id = $1`,
     [session.id]
   );
   const notification_prefs = prefRes.rows[0]?.notification_prefs || {};
+  const ui_prefs = normalizeUiPrefs(prefRes.rows[0]?.ui_prefs);
 
   return jsonOk({
     ...user,
@@ -36,17 +42,19 @@ export async function GET() {
     act_as_company_id: session.act_as_company_id ?? null,
     act_as_company_name: session.act_as_company_name ?? null,
     notification_prefs,
+    ui_prefs,
   });
 }
 
 export async function PATCH(request: NextRequest) {
   try {
-    const session = await requireSession();
+    const session = await requireSession({ allowPasswordChange: true });
     const body = await request.json().catch(() => ({}));
+    await ensureUiPrefsColumn();
 
     const current = await pool.query(
       `SELECT id, company_id, manager_id, role, name, email, phone, status, password_hash,
-              notification_prefs
+              notification_prefs, ui_prefs, must_change_password
        FROM users WHERE id = $1`,
       [session.id]
     );
@@ -60,6 +68,16 @@ export async function PATCH(request: NextRequest) {
       updates.push(`${col} = $${vals.length}`);
     };
     const changed: string[] = [];
+
+    const onlyPrefsUpdate =
+      body.ui_prefs !== undefined || body.notification_prefs !== undefined;
+    const profileFieldsTouched =
+      body.name !== undefined ||
+      body.email !== undefined ||
+      body.phone !== undefined ||
+      (body.password !== undefined &&
+        body.password !== null &&
+        body.password !== "");
 
     if (body.name !== undefined) {
       const name = String(body.name || "").trim();
@@ -108,13 +126,24 @@ export async function PATCH(request: NextRequest) {
         ? String(body.password)
         : "";
     if (newPassword) {
-      if (newPassword.length < 6) return jsonError("新密码至少 6 位");
+      assertStrongPassword(newPassword);
       const currentPassword = String(body.current_password || "");
       if (!currentPassword) return jsonError("修改密码请填写当前密码");
       const ok = await verifyPassword(currentPassword, String(row0.password_hash || ""));
       if (!ok) return jsonError("当前密码不正确", 400);
       push("password_hash", await hashPassword(newPassword));
+      push("password_changed_at", new Date());
+      push("must_change_password", false);
       changed.push("密码");
+    }
+
+    // 仅保存界面/通知偏好时，不强制先改密码
+    if (
+      row0.must_change_password &&
+      !newPassword &&
+      (profileFieldsTouched || !onlyPrefsUpdate)
+    ) {
+      return jsonError("首次登录必须先修改密码", 403);
     }
 
     if (body.notification_prefs !== undefined) {
@@ -131,8 +160,14 @@ export async function PATCH(request: NextRequest) {
       };
       const allowed = notificationTypesForUser(sessionForRole);
       const nextPrefs = normalizeNotificationPrefs(body.notification_prefs, allowed);
-      push("notification_prefs", JSON.stringify(nextPrefs));
+      push("notification_prefs", nextPrefs);
       changed.push("通知偏好");
+    }
+
+    if (body.ui_prefs !== undefined) {
+      const nextUi = normalizeUiPrefs(body.ui_prefs);
+      push("ui_prefs", nextUi);
+      changed.push("界面偏好");
     }
 
     let row = row0;
@@ -142,7 +177,8 @@ export async function PATCH(request: NextRequest) {
       const result = await pool.query(
         `UPDATE users SET ${updates.join(", ")}
          WHERE id = $${vals.length}
-         RETURNING id, company_id, manager_id, role, name, email, phone, status, notification_prefs`,
+         RETURNING id, company_id, manager_id, role, name, email, phone, status,
+                   notification_prefs, ui_prefs, must_change_password`,
         vals
       );
       row = result.rows[0];
@@ -159,6 +195,7 @@ export async function PATCH(request: NextRequest) {
       act_as_company_id: session.act_as_company_id ?? null,
       act_as_company_name: session.act_as_company_name ?? null,
     };
+    if (newPassword) await revokeUserSessions(Number(user.id));
     await setSessionCookie(user);
 
     if (changed.length) {
@@ -174,6 +211,7 @@ export async function PATCH(request: NextRequest) {
     return jsonOk({
       ...user,
       notification_prefs: row.notification_prefs || {},
+      ui_prefs: normalizeUiPrefs(row.ui_prefs),
     });
   } catch (err) {
     return handleApiError(err);

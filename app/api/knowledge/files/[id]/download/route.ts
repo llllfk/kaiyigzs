@@ -4,13 +4,16 @@ import { requireSession } from "@/lib/auth";
 import { readObject } from "@/lib/storage";
 import { handleApiError, jsonError } from "@/lib/api";
 import { isRemoteDocumentUri } from "@/lib/coze-knowledge";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("kb_files", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
     const result = await pool.query(`SELECT * FROM kb_files WHERE id = $1`, [id]);
     const file = result.rows[0];
     if (!file) return jsonError("未找到", 404);
@@ -31,6 +34,8 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
         "Content-Type": file.mime || "application/octet-stream",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.file_name)}`,
         "Content-Length": String(buf.length),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (err) {

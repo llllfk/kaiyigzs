@@ -26,6 +26,17 @@ const connectionString =
   process.env.DATABASE_URL ||
   "postgresql://postgres:postgres@127.0.0.1:5433/sales_crm";
 
+const isProduction = process.env.NODE_ENV === "production";
+const initialAdminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+
+function requireInitialPassword() {
+  if (initialAdminPassword) return initialAdminPassword;
+  if (isProduction) {
+    throw new Error("Production initialization requires INITIAL_ADMIN_PASSWORD");
+  }
+  return "LocalDevOnly123!";
+}
+
 async function ensureUser(pool, params) {
   const existing = await pool.query(`SELECT id FROM users WHERE email = $1`, [
     params.email,
@@ -42,8 +53,8 @@ async function ensureUser(pool, params) {
   const hash = await bcrypt.hash(params.password, 10);
   const res = await pool.query(
     `INSERT INTO users
-      (company_id, manager_id, role, name, email, phone, password_hash, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
+      (company_id, manager_id, role, name, email, phone, password_hash, status, must_change_password)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'active',$8)
      RETURNING id`,
     [
       params.companyId ?? null,
@@ -53,6 +64,7 @@ async function ensureUser(pool, params) {
       params.email,
       params.phone ?? null,
       hash,
+      Boolean(params.mustChangePassword),
     ]
   );
   console.log(
@@ -71,8 +83,15 @@ async function main() {
     name: "超级管理员",
     email: "admin@kaiyi.local",
     phone: "13800000001",
-    password: "Admin123!",
+    password: requireInitialPassword(),
+    mustChangePassword: isProduction,
   });
+
+  if (isProduction) {
+    await pool.end();
+    console.log("Production database initialized. Demo accounts were not created.");
+    return;
+  }
 
   // Demo company + roles so full CRM menus are visible
   let companyId;
@@ -107,7 +126,7 @@ async function main() {
     name: "公司管理员",
     email: "company@kaiyi.local",
     phone: "13800000002",
-    password: "Company123!",
+    password: process.env.DEV_COMPANY_PASSWORD || "LocalCompany123!",
   });
 
   const managerId = await ensureUser(pool, {
@@ -116,7 +135,7 @@ async function main() {
     name: "销售经理",
     email: "manager@kaiyi.local",
     phone: "13800000003",
-    password: "Manager123!",
+    password: process.env.DEV_MANAGER_PASSWORD || "LocalManager123!",
   });
 
   await ensureUser(pool, {
@@ -126,7 +145,7 @@ async function main() {
     name: "销售人员",
     email: "sales@kaiyi.local",
     phone: "13800000004",
-    password: "Sales123!",
+    password: process.env.DEV_SALES_PASSWORD || "LocalSales123!",
   });
 
   // Ensure company admin uniqueness is satisfied (already one)

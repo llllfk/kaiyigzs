@@ -13,6 +13,8 @@ import { formatDateTime, formatViewDurationMs } from "@/lib/utils";
 import { EMPTY_PAGE_META, pageRowNo, type PageMeta } from "@/lib/pagination";
 import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
 import { useSessionUser } from "@/components/shared/SessionUserContext";
+import { useViewMode } from "@/components/ui/ViewModeToggle";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 
 type QuoteItem = {
   id?: number;
@@ -46,6 +48,7 @@ type QuoteShare = {
 
 type Quote = {
   id: number;
+  public_id: string;
   version: number;
   status: string;
   title: string | null;
@@ -134,37 +137,13 @@ export default function QuotesClient() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
-  const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [viewMode, changeViewMode] = useViewMode("crm:quotes-view");
   const [shareBusy, setShareBusy] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [customerInput, setCustomerInput] = useState("");
   const [filterCustomerQ, setFilterCustomerQ] = useState("");
   const [filterOppId, setFilterOppId] = useState("");
   const [oppLocked, setOppLocked] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("crm:quotes-view");
-      if (saved === "table" || saved === "card") {
-        setViewMode(saved);
-        return;
-      }
-      if (window.matchMedia("(max-width: 767px)").matches) {
-        setViewMode("card");
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  function changeViewMode(mode: "table" | "card") {
-    setViewMode(mode);
-    try {
-      localStorage.setItem("crm:quotes-view", mode);
-    } catch {
-      /* ignore */
-    }
-  }
 
   const canApprove =
     me?.role === "company_admin" ||
@@ -360,7 +339,8 @@ export default function QuotesClient() {
   }, []);
 
   async function openById(id: number) {
-    const res = await fetch(`/api/quotes/${id}`);
+    const key = [...list, ...pending].find((item) => item.id === id)?.public_id || id;
+    const res = await fetch(`/api/quotes/${key}`);
     const json = await res.json();
     if (!res.ok) {
       ui.error("打开报价失败", json.error);
@@ -483,7 +463,7 @@ export default function QuotesClient() {
         quoteId = json.data.id;
         ui.success("报价已创建");
       } else {
-        const res = await fetch(`/api/quotes/${editing.id}`, {
+        const res = await fetch(`/api/quotes/${editing.public_id || editing.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -503,7 +483,8 @@ export default function QuotesClient() {
       }
 
       if (andSubmit && quoteId) {
-        const res = await fetch(`/api/quotes/${quoteId}`, {
+      const key = editing?.public_id || quoteId;
+      const res = await fetch(`/api/quotes/${key}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "submit" }),
@@ -533,7 +514,8 @@ export default function QuotesClient() {
   async function createShare(quoteId: number) {
     setShareBusy(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}/share`, { method: "POST" });
+      const key = editing?.public_id || quoteId;
+      const res = await fetch(`/api/quotes/${key}/share`, { method: "POST" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         ui.error("生成链接失败", json.error);
@@ -562,7 +544,8 @@ export default function QuotesClient() {
     if (!ok) return;
     setShareBusy(true);
     try {
-      const res = await fetch(`/api/quotes/${quoteId}/share`, { method: "DELETE" });
+      const key = editing?.public_id || quoteId;
+      const res = await fetch(`/api/quotes/${key}/share`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         ui.error("撤销失败", json.error);
@@ -587,7 +570,8 @@ export default function QuotesClient() {
   }
 
   async function runAction(id: number, action: string, extra?: Record<string, unknown>) {
-    const res = await fetch(`/api/quotes/${id}`, {
+    const key = [...list, ...pending].find((item) => item.id === id)?.public_id || id;
+    const res = await fetch(`/api/quotes/${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ...extra }),
@@ -688,87 +672,98 @@ export default function QuotesClient() {
       </div>
 
       {tab === "mine" ? (
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="w-36 min-w-[8rem]">
-            <Select
-              value={filterStatus}
-              onChange={(v) => {
-                setFilterStatus(v);
-                setPage(1);
-              }}
-              options={QUOTE_STATUS_FILTERS}
-              placeholder="状态"
-            />
-          </div>
-          <div className="min-w-[12rem] flex-1 sm:max-w-sm">
-            <Select
-              value={filterOppId}
-              onChange={(v) => {
-                setFilterOppId(v);
-                setPage(1);
-              }}
-              searchable
-              onQueryChange={onOppQueryChange}
-              placeholder="全部商机"
-              options={[
-                { value: "", label: "全部商机" },
-                ...opps.map((o) => ({
-                  value: String(o.id),
-                  label: `${o.title}${o.customer_name ? ` · ${o.customer_name}` : ""}`,
-                })),
-              ]}
-            />
-          </div>
-          <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
-            <input
-              className={`input ${customerInput ? "pr-9" : ""}`}
-              placeholder="搜索客户"
-              value={customerInput}
-              onChange={(e) => setCustomerInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
+        <CollapsibleListFilters
+          activeCount={
+            (filterStatus ? 1 : 0) +
+            (filterOppId ? 1 : 0) +
+            (filterCustomerQ.trim() ? 1 : 0)
+          }
+          primary={
+            <div className="relative w-full min-w-0 md:max-w-xs md:flex-1">
+              <input
+                className={`input w-full ${customerInput ? "pr-9" : ""}`}
+                placeholder="搜索客户"
+                value={customerInput}
+                onChange={(e) => setCustomerInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const q = customerInput.trim();
+                    setFilterCustomerQ(q);
+                    if (page === 1) void load({ force: true, customerQ: q, page: 1 });
+                    else setPage(1);
+                  }
+                }}
+              />
+              {customerInput ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                  onClick={() => {
+                    setCustomerInput("");
+                    setFilterCustomerQ("");
+                    if (page === 1) void load({ force: true, customerQ: "", page: 1 });
+                    else setPage(1);
+                  }}
+                >
+                  清除
+                </button>
+              ) : null}
+            </div>
+          }
+          secondary={
+            <>
+              <div className="w-36 min-w-[8rem]">
+                <Select
+                  value={filterStatus}
+                  onChange={(v) => {
+                    setFilterStatus(v);
+                    setPage(1);
+                  }}
+                  options={QUOTE_STATUS_FILTERS}
+                  placeholder="状态"
+                />
+              </div>
+              <div className="min-w-[12rem] flex-1 sm:max-w-sm">
+                <Select
+                  value={filterOppId}
+                  onChange={(v) => {
+                    setFilterOppId(v);
+                    setPage(1);
+                  }}
+                  searchable
+                  onQueryChange={onOppQueryChange}
+                  placeholder="全部商机"
+                  options={[
+                    { value: "", label: "全部商机" },
+                    ...opps.map((o) => ({
+                      value: String(o.id),
+                      label: `${o.title}${o.customer_name ? ` · ${o.customer_name}` : ""}`,
+                    })),
+                  ]}
+                />
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-9"
+                onClick={() => {
                   const q = customerInput.trim();
                   setFilterCustomerQ(q);
                   if (page === 1) void load({ force: true, customerQ: q, page: 1 });
                   else setPage(1);
-                }
-              }}
-            />
-            {customerInput ? (
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                onClick={() => {
-                  setCustomerInput("");
-                  setFilterCustomerQ("");
-                  if (page === 1) void load({ force: true, customerQ: "", page: 1 });
-                  else setPage(1);
                 }}
               >
-                清除
-              </button>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-9"
-            onClick={() => {
-              const q = customerInput.trim();
-              setFilterCustomerQ(q);
-              if (page === 1) void load({ force: true, customerQ: q, page: 1 });
-              else setPage(1);
-            }}
-          >
-            查询
-          </Button>
-          {hasMineFilters ? (
-            <Button type="button" variant="ghost" className="min-h-9" onClick={clearFilters}>
-              重置
-            </Button>
-          ) : null}
-        </div>
+                查询
+              </Button>
+              {hasMineFilters ? (
+                <Button type="button" variant="ghost" className="min-h-9" onClick={clearFilters}>
+                  重置
+                </Button>
+              ) : null}
+            </>
+          }
+        />
       ) : null}
 
       {viewMode === "table" ? (
@@ -781,7 +776,7 @@ export default function QuotesClient() {
             <table className="w-full min-w-[44rem] text-sm">
               <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                 <tr>
-                  <th className="whitespace-nowrap px-4 py-3 font-medium">#</th>
+                  <th className="whitespace-nowrap px-4 py-3 font-medium">序号</th>
                   <th className="px-4 py-3 font-medium">报价</th>
                   <th className="px-4 py-3 font-medium">客户 / 商机</th>
                   {tab === "pending" ? (
@@ -816,7 +811,7 @@ export default function QuotesClient() {
                     <td className="px-4 py-3">
                       <div>{q.customer_name || "—"}</div>
                       <span className="text-xs text-[var(--color-muted)]">
-                        {q.opportunity_title || `商机 #${q.opportunity_id}`}
+                        {q.opportunity_title || "关联商机"}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -890,8 +885,8 @@ export default function QuotesClient() {
                     <div className="card-corner-status mt-0.5">
                       <StatusTag kind="quote" value={q.status} />
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold">{q.title || "未命名"}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold">{q.title || "未命名"}</div>
                       <div className="text-xs text-[var(--color-muted)]">V{q.version}</div>
                     </div>
                     <div className="ml-auto shrink-0 tabular-nums font-semibold">
@@ -1042,7 +1037,7 @@ export default function QuotesClient() {
                     const o = opps.find((x) => String(x.id) === oppId);
                     return o
                       ? `${o.title}${o.customer_name ? ` · ${o.customer_name}` : ""}`
-                      : `商机 #${oppId}`;
+                      : "关联商机";
                   })()}
                 </div>
               ) : (

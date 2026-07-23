@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       }
 
       const id = Number(body.speaker_id || body.id);
-      if (!id) return jsonError("缺少复刻音色 ID");
+      if (!id) return jsonError("请选择复刻音色");
       const rowRes = await pool.query(
         `SELECT id, name FROM voice_speakers WHERE id = $1 AND company_id = $2`,
         [id, companyId]
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     if (action === "report_duration") {
       const logId = Number(body.synth_log_id || body.log_id);
       const durationSec = Number(body.duration_sec);
-      if (!logId) return jsonError("缺少合成记录 ID");
+      if (!logId) return jsonError("未找到合成记录");
       if (!Number.isFinite(durationSec) || durationSec <= 0) {
         return jsonError("时长无效");
       }
@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
     if (!row) return jsonError("音色不存在", 404);
     if (row.status !== "ready") return jsonError("音色未就绪，无法合成");
     const speakerId = String(row.provider_speaker_id || "").trim();
-    if (!speakerId) return jsonError("缺少 Speaker ID");
+    if (!speakerId) return jsonError("音色尚未完成平台配置");
     const modelType = normalizeVoiceIclModelType(body.model_type);
 
     try {

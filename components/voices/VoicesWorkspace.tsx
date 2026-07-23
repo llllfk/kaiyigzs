@@ -194,7 +194,7 @@ export function VoicesWorkspace() {
 
   async function openPreview(item: VoiceItem) {
     if (!item.speaker_id && item.has_speaker === false) {
-      ui.error("缺少 Speaker ID", "请联系平台分配后再试听");
+      ui.error("音色尚未配置", "请联系平台管理员完成配置后再试听");
       return;
     }
     if (item.status === "training") {
@@ -588,7 +588,7 @@ export function VoicesWorkspace() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-[var(--color-muted)]">
-          每个 Speaker ID 一张卡片。
+          每个可用音色显示为一张卡片。
           {canManage
             ? "控制台已训练过的音色可直接点击试听；未训练的再上传样音。"
             : "可试听已就绪音色并合成文案；训练与删除请联系管理员或销售经理。"}
@@ -782,13 +782,13 @@ export function VoicesWorkspace() {
 
       {slots <= 0 && (
         <div className="surface p-4 text-sm text-[var(--color-muted)]">
-          当前公司未开通声音复刻。如需使用，请联系平台开通槽位并配置 Speaker ID。
+          当前公司未开通声音复刻。如需使用，请联系平台管理员开通。
         </div>
       )}
 
       {slots > 0 && !loading && items.length === 0 && (
         <div className="surface p-4 text-sm text-[var(--color-muted)]">
-          平台尚未为本公司分配 Speaker ID。请联系平台管理员在「音色管理」中配置后再上传样音。
+          平台尚未为本公司分配音色。请联系平台管理员配置后再上传样音。
         </div>
       )}
 
@@ -844,7 +844,7 @@ export function VoicesWorkspace() {
                           <span className="font-mono">{item.speaker_id}</span>
                         </>
                       ) : (
-                        " · 未分配 Speaker ID"
+                        " · 尚未配置"
                       )}
                     </div>
                   </div>
@@ -874,7 +874,7 @@ export function VoicesWorkspace() {
                   )}
                   {!item.speaker_id && (
                     <div className="text-sm text-[var(--color-muted)]">
-                      等待平台分配 Speaker ID
+                      等待平台配置音色
                     </div>
                   )}
                 </div>
@@ -952,7 +952,7 @@ export function VoicesWorkspace() {
         }
         description={
           previewTarget?.speaker_id
-            ? `配置：Speaker ID ${previewTarget.speaker_id}`
+            ? "平台音色配置已就绪"
             : "试听当前音色效果"
         }
         onClose={() => setPreviewOpen(false)}
@@ -1049,7 +1049,7 @@ export function VoicesWorkspace() {
             ? `${trainIsRetrain ? "重新训练" : "上传训练"} · ${trainTarget.name}`
             : "上传训练"
         }
-        description="建议 10–30 秒、安静环境、单人说话。将使用平台已配置的 Speaker ID 提交火山训练。"
+        description="建议 10–30 秒、安静环境、单人说话。将使用平台已配置的音色提交训练。"
         onClose={() => setTrainOpen(false)}
         size="lg"
         footer={

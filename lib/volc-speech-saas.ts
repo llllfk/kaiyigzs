@@ -3,13 +3,51 @@
  * 鉴权：访问控制 AK/SK（与豆包语音 API Key 不同）
  */
 
-import { Signer } from "@volcengine/openapi";
+import { createHash, createHmac } from "node:crypto";
 import { ensurePlatformEnvLoaded } from "@/lib/runtime-env";
 
 const HOST = "open.volcengineapi.com";
 const REGION = "cn-north-1";
 const SERVICE = "speech_saas_prod";
 const VERSION = "2023-11-07";
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function hmac(key: string | Buffer, value: string) {
+  return createHmac("sha256", key).update(value).digest();
+}
+
+function addVolcAuthorization(params: {
+  headers: Record<string, string>;
+  query: URLSearchParams;
+  body: string;
+  accessKeyId: string;
+  secretKey: string;
+}) {
+  const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const date = datetime.slice(0, 8);
+  params.headers["X-Date"] = datetime;
+  params.headers["X-Content-Sha256"] = sha256(params.body);
+  const signedHeaders = Object.keys(params.headers)
+    .map((key) => key.toLowerCase())
+    .filter((key) => !["authorization", "content-type", "content-length", "user-agent"].includes(key))
+    .sort();
+  const canonicalHeaders = signedHeaders
+    .map((key) => `${key}:${params.headers[Object.keys(params.headers).find((item) => item.toLowerCase() === key)!].trim().replace(/\s+/g, " ")}`)
+    .join("\n");
+  const query = [...params.query.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+  const canonical = ["POST", "/", query, `${canonicalHeaders}\n`, signedHeaders.join(";"), params.headers["X-Content-Sha256"]].join("\n");
+  const scope = `${date}/${REGION}/${SERVICE}/request`;
+  const stringToSign = ["HMAC-SHA256", datetime, scope, sha256(canonical)].join("\n");
+  const signingKey = hmac(hmac(hmac(hmac(params.secretKey, date), REGION), SERVICE), "request");
+  const signature = createHmac("sha256", signingKey).update(stringToSign).digest("hex");
+  params.headers.Authorization = `HMAC-SHA256 Credential=${params.accessKeyId}/${scope}, SignedHeaders=${signedHeaders.join(";")}, Signature=${signature}`;
+}
 
 export type VolcOpenApiCredentials = {
   accessKeyId: string;
@@ -50,30 +88,14 @@ async function callSpeechSaas<T = Record<string, unknown>>(params: {
   });
   const bodyStr = JSON.stringify(params.body);
   const pathname = "/";
-  const requestObj: {
-    region: string;
-    method: string;
-    pathname?: string;
-    params: Record<string, string>;
-    headers: Record<string, string>;
-    body: string;
-  } = {
-    region: REGION,
-    method: "POST",
-    pathname,
-    params: {
-      Action: params.action,
-      Version: VERSION,
-    },
-    headers: {
+  const headers: Record<string, string> = {
       Host: HOST,
       "Content-Type": "application/json; charset=utf-8",
-    },
-    body: bodyStr,
   };
-
-  const signer = new Signer(requestObj as never, SERVICE);
-  signer.addAuthorization({
+  addVolcAuthorization({
+    headers,
+    query,
+    body: bodyStr,
     accessKeyId: params.creds.accessKeyId,
     secretKey: params.creds.secretKey,
   });
@@ -81,7 +103,7 @@ async function callSpeechSaas<T = Record<string, unknown>>(params: {
   const url = `https://${HOST}${pathname}?${query.toString()}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: requestObj.headers,
+    headers,
     body: bodyStr,
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -223,18 +245,16 @@ export function parseMegaTtsTrainStatuses(
   if (!result || typeof result !== "object") return [];
   const statuses = result.Statuses;
   if (!Array.isArray(statuses)) return [];
-  return statuses
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const speakerId = String(row.SpeakerID || row.SpeakerId || "").trim();
-      if (!speakerId) return null;
-      const timesRaw = row.AvailableTrainingTimes;
-      const times =
-        timesRaw == null || timesRaw === ""
-          ? null
-          : Number(timesRaw);
-      return {
+  const parsed: MegaTtsSpeakerStatus[] = [];
+  for (const item of statuses) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const speakerId = String(row.SpeakerID || row.SpeakerId || "").trim();
+    if (!speakerId) continue;
+    const timesRaw = row.AvailableTrainingTimes;
+    const times =
+      timesRaw == null || timesRaw === "" ? null : Number(timesRaw);
+    parsed.push({
         speakerId,
         state: row.State != null ? String(row.State) : undefined,
         availableTrainingTimes:
@@ -246,7 +266,7 @@ export function parseMegaTtsTrainStatuses(
             : null,
         alias: row.Alias != null ? String(row.Alias) : undefined,
         raw: row,
-      } satisfies MegaTtsSpeakerStatus;
-    })
-    .filter((x): x is MegaTtsSpeakerStatus => Boolean(x));
+    });
+  }
+  return parsed;
 }

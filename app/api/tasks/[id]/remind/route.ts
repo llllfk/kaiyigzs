@@ -8,6 +8,7 @@ import {
 } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -20,13 +21,15 @@ export async function POST(_request: NextRequest, { params }: Ctx) {
       return jsonError("仅公司管理员或销售经理可催办", 403);
     }
 
-    const { id: idRaw } = await params;
-    const id = Number(idRaw);
-    if (!id) return jsonError("缺少待办 id");
+    const resolved = await resolvePublicRecordId("tasks", (await params).id);
+    if (!resolved) return jsonError("待办不存在", 404);
+    const id = Number(resolved.id);
 
     const taskRes = await pool.query(
-      `SELECT id, company_id, owner_id, title, status, customer_id
-       FROM tasks WHERE id = $1`,
+      `SELECT t.id, t.company_id, t.owner_id, t.title, t.status, t.customer_id,
+              c.public_id AS customer_public_id
+       FROM tasks t LEFT JOIN customers c ON c.id = t.customer_id
+       WHERE t.id = $1`,
       [id]
     );
     const task = taskRes.rows[0] as
@@ -37,14 +40,19 @@ export async function POST(_request: NextRequest, { params }: Ctx) {
           title: string;
           status: string;
           customer_id: number | null;
+          customer_public_id: string | null;
         }
       | undefined;
     if (!task) return jsonError("待办不存在", 404);
 
     assertCompanyAccess(user, task.company_id);
 
-    if (task.status === "done" || task.status === "cancelled") {
-      return jsonError("该待办已结束，无需催办");
+    if (
+      task.status === "done" ||
+      task.status === "cancelled" ||
+      task.status === "confirmed"
+    ) {
+      return jsonError("该待办已结束或已确认，无需催办");
     }
 
     const ownerId = Number(task.owner_id);
@@ -64,14 +72,14 @@ export async function POST(_request: NextRequest, { params }: Ctx) {
          AND body LIKE $2
          AND created_at > CURRENT_TIMESTAMP - INTERVAL '30 minutes'
        LIMIT 1`,
-      [ownerId, `%#${id}%`]
+      [ownerId, `%${task.title}%`]
     );
     if (recent.rows[0]) {
       return jsonError("30 分钟内已催办过，请稍后再试");
     }
 
     const link = task.customer_id
-      ? `/customers/${task.customer_id}`
+      ? `/customers/${task.customer_public_id || task.customer_id}`
       : "/tasks";
 
     await createNotification({
@@ -79,7 +87,7 @@ export async function POST(_request: NextRequest, { params }: Ctx) {
       userId: ownerId,
       type: "task",
       title: "待办催办",
-      body: `${user.name} 提醒你尽快处理：${task.title}（#${id}）`,
+      body: `${user.name} 提醒你尽快处理：${task.title}`,
       link,
     });
 

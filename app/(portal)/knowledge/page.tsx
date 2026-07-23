@@ -43,6 +43,7 @@ type Folder = {
 };
 type KbFile = {
   id: number;
+  public_id?: string;
   file_name: string;
   size_bytes: number | null;
   uploader_name?: string;
@@ -453,7 +454,7 @@ export default function KnowledgePage() {
       return;
     }
     try {
-      const res = await fetch(`/api/knowledge/files/${file.id}/download`);
+      const res = await fetch(`/api/knowledge/files/${file.public_id || file.id}/download`);
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         ui.error("下载失败", json.error || "请稍后重试");
@@ -852,7 +853,7 @@ export default function KnowledgePage() {
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_400px] xl:overflow-hidden">
-        <aside className="surface flex min-h-0 flex-col overflow-hidden max-xl:h-[calc(100dvh-8rem)] xl:h-full">
+        <aside className="surface flex min-h-0 flex-col overflow-hidden xl:h-full">
           <div className="shrink-0 border-b border-[var(--color-border)] bg-gradient-to-b from-slate-50 to-white px-3 py-3">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#eff6ff] text-[var(--color-accent)]">
@@ -873,7 +874,7 @@ export default function KnowledgePage() {
               </div>
             </div>
           </div>
-          <ScrollArea className="min-h-0 flex-1 px-2 py-2">
+          <ScrollArea className="min-h-0 flex-1 px-2 py-2 max-xl:max-h-[min(18rem,50dvh)]">
             {folders.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-border)] bg-slate-50/70 px-3 py-8 text-center">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
@@ -917,7 +918,7 @@ export default function KnowledgePage() {
           )}
         </aside>
 
-        <section className="surface flex min-h-0 flex-col overflow-hidden p-4 max-xl:h-[calc(100dvh-8rem)] xl:h-full">
+        <section className="surface flex min-h-0 flex-col overflow-hidden p-4 xl:h-full">
           {!activeId ? (
             <div className="text-sm text-[var(--color-muted)]">请选择左侧目录</div>
           ) : (
@@ -973,7 +974,7 @@ export default function KnowledgePage() {
                   检索依赖知识库后台已导入的数据。可联系系统管理员把文件关联到知识库。
                 </div>
               ) : null}
-              <ScrollArea className="min-h-0 flex-1">
+              <ScrollArea className="min-h-0 flex-1 max-xl:max-h-[min(22rem,55dvh)]">
                 <ul className="space-y-2">
                   {filesLoading && files.length === 0 && (
                     <li className="text-sm text-[var(--color-muted)]">加载中…</li>
@@ -1061,7 +1062,7 @@ export default function KnowledgePage() {
           )}
         </section>
 
-        <aside className="surface flex min-h-0 flex-col overflow-hidden p-4 max-xl:h-[calc(100dvh-8rem)] xl:h-full">
+        <aside className="surface flex min-h-0 flex-col overflow-hidden p-4 xl:h-full">
           <div className="mb-2 shrink-0 space-y-2">
             <div className="font-semibold">知识库问答</div>
             <div className="flex items-center gap-2">
@@ -1115,7 +1116,7 @@ export default function KnowledgePage() {
               ? "由智能体检索已绑定知识库回答；对话会自动保存"
               : "未配置智能体时，临时读取本目录文本文件回答；对话会自动保存"}
           </p>
-          <div className="mb-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-slate-50/60 p-2">
+          <div className="mb-3 min-h-0 flex-1 space-y-2 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-slate-50/60 p-2 max-xl:min-h-[12rem] max-xl:max-h-[min(18rem,45dvh)]">
             {qaMessages.length === 0 && !qaLoading && (
               <div className="p-1 text-xs text-[var(--color-muted)]">暂无对话，先提一个问题吧</div>
             )}

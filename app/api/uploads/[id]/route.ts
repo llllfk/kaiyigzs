@@ -3,11 +3,12 @@ import { requireSession } from "@/lib/auth";
 import { previewMediaAnalysis } from "@/lib/analyze";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
-import { assertCanAccessCustomer } from "@/lib/permissions";
+import { assertCanAccessCustomer, assertCanAccessMedia } from "@/lib/permissions";
 import { mergePainPoints } from "@/lib/pain-points";
 import { deleteObject } from "@/lib/storage";
 import { renameKeepingExtension, splitFileName } from "@/lib/utils";
 import pool from "@/lib/db";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -15,12 +16,14 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("media_assets", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
     const body = await request.json().catch(() => ({}));
-    const mediaId = Number(id);
+    const mediaId = Number(resolved.id);
     if (!Number.isFinite(mediaId) || mediaId <= 0) {
-      return jsonError("无效的记录 ID");
+      return jsonError("记录参数无效");
     }
+    await assertCanAccessMedia(user, mediaId);
 
     if (body.transcript) {
       await pool.query(
@@ -43,26 +46,20 @@ export async function POST(request: NextRequest, { params }: Ctx) {
 export async function PATCH(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
-    const mediaId = Number(id);
+    const resolved = await resolvePublicRecordId("media_assets", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const mediaId = Number(resolved.id);
     if (!Number.isFinite(mediaId) || mediaId <= 0) {
-      return jsonError("无效的记录 ID");
+      return jsonError("记录参数无效");
     }
 
     const body = await request.json().catch(() => ({}));
+    await assertCanAccessMedia(user, mediaId);
     const existing = await pool.query(`SELECT * FROM media_assets WHERE id = $1`, [
       mediaId,
     ]);
     const row = existing.rows[0];
     if (!row) return jsonError("未找到", 404);
-
-    const sameCompany =
-      row.company_id != null &&
-      user.company_id != null &&
-      Number(row.company_id) === Number(user.company_id);
-    if (!sameCompany && user.role !== "super_admin") {
-      return jsonError("无权修改", 403);
-    }
 
     const updates: string[] = [];
     const paramsSql: unknown[] = [];
@@ -290,7 +287,10 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
 export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("media_assets", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const id = String(resolved.id);
+    await assertCanAccessMedia(user, Number(id));
     const result = await pool.query(
       `SELECT m.*, i.id AS insight_id, i.result_json, i.summary AS insight_summary
        FROM media_assets m
@@ -302,12 +302,6 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     );
     const row = result.rows[0];
     if (!row) return jsonError("未找到", 404);
-    if (
-      user.role !== "super_admin" &&
-      Number(row.company_id) !== Number(user.company_id)
-    ) {
-      return jsonError("无权访问", 403);
-    }
     return jsonOk(row);
   } catch (err) {
     return handleApiError(err);
@@ -317,25 +311,19 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
 export async function DELETE(_request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
-    const mediaId = Number(id);
+    const resolved = await resolvePublicRecordId("media_assets", (await params).id);
+    if (!resolved) return jsonError("未找到", 404);
+    const mediaId = Number(resolved.id);
     if (!Number.isFinite(mediaId) || mediaId <= 0) {
-      return jsonError("无效的记录 ID");
+      return jsonError("记录参数无效");
     }
 
+    await assertCanAccessMedia(user, mediaId);
     const existing = await pool.query(`SELECT * FROM media_assets WHERE id = $1`, [
       mediaId,
     ]);
     const row = existing.rows[0];
     if (!row) return jsonError("未找到", 404);
-
-    const sameCompany =
-      row.company_id != null &&
-      user.company_id != null &&
-      Number(row.company_id) === Number(user.company_id);
-    if (!sameCompany && user.role !== "super_admin") {
-      return jsonError("无权删除", 403);
-    }
 
     if (row.customer_id != null) {
       await assertCanAccessCustomer(user, Number(row.customer_id));

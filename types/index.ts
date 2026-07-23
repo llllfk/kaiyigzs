@@ -46,6 +46,8 @@ export interface SessionUser {
   name: string;
   email: string | null;
   phone?: string | null;
+  must_change_password?: boolean;
+  session_prefix?: string | null;
   /** 超级管理员进入某公司业务视图时设置 */
   act_as_company_id?: number | null;
   act_as_company_name?: string | null;

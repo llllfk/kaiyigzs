@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/security";
+import { assertSafeUpload } from "@/lib/file-security";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import {
   asrConfigured,
@@ -14,6 +16,7 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireSession();
+    await enforceRateLimit({ key:`transcribe:${user.company_id}:${user.id}`, limit:20, windowSeconds:3600 });
     if (!user.company_id) return jsonError("缺少公司信息", 400);
     if (!(await asrConfigured(user.company_id))) {
       return jsonError(
@@ -31,6 +34,7 @@ export async function POST(request: NextRequest) {
 
     const blob = file as File;
     const body = Buffer.from(await blob.arrayBuffer());
+    assertSafeUpload(blob,body,{ maxBytes:200*1024*1024, allowedExts:["mp3","wav","m4a","aac","ogg","flac","webm","mp4"] });
     if (!body.length) return jsonError("录音文件为空");
     if (body.length > 200 * 1024 * 1024) {
       return jsonError("单文件不能超过 200MB");

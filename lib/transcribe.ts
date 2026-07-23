@@ -232,7 +232,7 @@ export async function resolveAudioHttpsUrl(params: {
 
   // 2) 本机临时下载（火山服务器必须能访问，需公网域名）
   const base = appPublicBaseUrl();
-  if (base.startsWith("http") && !/localhost|127\.0\.0\.1/i.test(base)) {
+  if (process.env.NODE_ENV !== "production" && base.startsWith("http") && !/localhost|127\.0\.0\.1/i.test(base)) {
     const token = putTempAudio(params.body, params.mime);
     return {
       url: `${base}/api/media/temp/${token}`,
@@ -255,7 +255,7 @@ export async function resolveAudioHttpsUrl(params: {
   }
 
   throw new Error(
-    "无法生成火山可用的 https 音频地址。请任选其一：① 配置 COZE_STORAGE_* 与 COZE_STORAGE_PUBLIC_BASE（或安装预签名依赖）；② 配置公网 PUBLIC_APP_BASE_URL；③ 粘贴转写文本；④ 配置 OPENAI_API_KEY 用 Whisper"
+    "无法生成火山可用的 https 音频地址。生产环境必须配置私有对象存储 COZE_STORAGE_*；也可粘贴转写文本或配置 OPENAI_API_KEY 使用 Whisper"
   );
 }
 

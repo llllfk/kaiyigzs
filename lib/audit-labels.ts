@@ -64,6 +64,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "quote.rule.update": "更新报价规则",
   "task.delete": "删除待办",
   "task.remind": "催办待办",
+  "task.remind_bulk": "一键催办",
   "pool.release": "放入公海",
   "pool.claim": "领取公海客户",
   "pool.assign": "分配公海客户",

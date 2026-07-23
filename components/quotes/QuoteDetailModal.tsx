@@ -69,7 +69,7 @@ export function QuoteDetailModal({
   open,
   onClose,
 }: {
-  quoteId: number | null;
+  quoteId: string | number | null;
   open: boolean;
   onClose: () => void;
 }) {

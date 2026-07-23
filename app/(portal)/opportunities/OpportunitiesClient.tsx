@@ -24,6 +24,11 @@ import { downloadExport, exportStamp } from "@/lib/download-export";
 import { pageCacheFetchJson, pageCachePeek, pageCachePut } from "@/lib/page-cache";
 import { STAGE_CHANGE_SOURCE_LABELS } from "@/lib/opportunity-stage-labels";
 import { useFloatingMenu } from "@/components/ui/useFloatingMenu";
+import {
+  isMobileViewport,
+  viewModeStorageKey,
+} from "@/components/ui/ViewModeToggle";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 import dynamic from "next/dynamic";
 
 const ContextChat = dynamic(
@@ -41,6 +46,37 @@ const QuoteDetailModal = dynamic(
 
 type OppViewMode = "table" | "card" | "funnel";
 
+const OPP_VIEW_KEY = "crm:opportunities-view";
+
+function resolveOppViewMode(): OppViewMode {
+  if (typeof window === "undefined") return "card";
+  try {
+    const scoped = localStorage.getItem(viewModeStorageKey(OPP_VIEW_KEY));
+    if (scoped === "table" || scoped === "card" || scoped === "funnel") {
+      return scoped;
+    }
+    if (scoped === "list") return "card";
+    // 手机未设过：默认卡片，不继承电脑端表格/漏斗
+    if (isMobileViewport()) return "card";
+    const legacy = localStorage.getItem(OPP_VIEW_KEY);
+    if (legacy === "table" || legacy === "card" || legacy === "funnel") {
+      return legacy;
+    }
+    if (legacy === "list") return "card";
+  } catch {
+    /* ignore */
+  }
+  return "card";
+}
+
+function persistOppViewMode(mode: OppViewMode) {
+  try {
+    localStorage.setItem(viewModeStorageKey(OPP_VIEW_KEY), mode);
+  } catch {
+    /* ignore */
+  }
+}
+
 const STAGE_ORDER = Object.keys(STAGE_LABELS) as OpportunityStage[];
 
 const STAGE_COL: Record<OpportunityStage, string> = {
@@ -53,11 +89,13 @@ const STAGE_COL: Record<OpportunityStage, string> = {
 
 export type Opp = {
   id: number;
+  public_id: string;
   title: string;
   stage: string;
   amount: number | null;
   customer_name?: string;
   customer_id: number;
+  customer_public_id?: string;
   owner_name?: string;
   expected_close_date?: string | null;
   created_at?: string;
@@ -79,6 +117,7 @@ type StageHistoryRow = {
 
 type OppQuoteRow = {
   id: number;
+  public_id?: string;
   version: number;
   status: string;
   title?: string | null;
@@ -344,7 +383,9 @@ export default function OpportunitiesClient({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [oppQuotes, setOppQuotes] = useState<OppQuoteRow[]>([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
-  const [quoteDetailId, setQuoteDetailId] = useState<number | null>(null);
+  const [quoteDetailId, setQuoteDetailId] = useState<string | number | null>(null);
+
+  const oppKey = (id: number) => list.find((item) => item.id === id)?.public_id || id;
   const [taskDate, setTaskDate] = useState("");
   const [taskTime, setTaskTime] = useState("18:00");
   const [taskSubmitting, setTaskSubmitting] = useState(false);
@@ -362,17 +403,7 @@ export default function OpportunitiesClient({
   const [createDate, setCreateDate] = useState("");
   const [createAmount, setCreateAmount] = useState("");
   const [createSubmitting, setCreateSubmitting] = useState(false);
-  const [viewMode, setViewMode] = useState<OppViewMode>(() => {
-    if (typeof window === "undefined") return "card";
-    try {
-      const saved = localStorage.getItem("crm:opportunities-view");
-      if (saved === "table" || saved === "card" || saved === "funnel") return saved;
-      if (saved === "list") return "card";
-    } catch {
-      /* ignore */
-    }
-    return "card";
-  });
+  const [viewMode, setViewMode] = useState<OppViewMode>("card");
   const [movingId, setMovingId] = useState<number | null>(null);
   const [funnelDrag, setFunnelDrag] = useState<{
     oppId: number;
@@ -408,11 +439,7 @@ export default function OpportunitiesClient({
     if (mode === "funnel" && !isDesktop) return;
     setViewMode(mode);
     endFunnelDrag();
-    try {
-      localStorage.setItem("crm:opportunities-view", mode);
-    } catch {
-      /* ignore */
-    }
+    persistOppViewMode(mode);
   }
 
   const customerOptions = useMemo(
@@ -648,7 +675,7 @@ export default function OpportunitiesClient({
     void (async () => {
       try {
         const [histRes, quoteRes] = await Promise.all([
-          fetch(`/api/opportunities/${oppId}/stage-history`),
+          fetch(`/api/opportunities/${oppKey(oppId)}/stage-history`),
           // 只查当前点击商机下的报价
           fetch(`/api/quotes?scope=opportunity&opportunity_id=${oppId}`),
         ]);
@@ -729,7 +756,7 @@ export default function OpportunitiesClient({
     try {
       if (isEdit && editOpp) {
         const syncedAmount = pickSyncedQuoteAmount(oppQuotes);
-        const res = await fetch(`/api/opportunities/${editOpp.id}`, {
+        const res = await fetch(`/api/opportunities/${editOpp.public_id || editOpp.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -796,7 +823,7 @@ export default function OpportunitiesClient({
       confirmText: "采纳建议",
     });
     if (!ok) return;
-    const res = await fetch(`/api/opportunities/${id}/stage-suggestion`, {
+    const res = await fetch(`/api/opportunities/${oppKey(id)}/stage-suggestion`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "accept" }),
@@ -821,7 +848,7 @@ export default function OpportunitiesClient({
       confirmText: "忽略建议",
     });
     if (!ok) return;
-    const res = await fetch(`/api/opportunities/${id}/stage-suggestion`, {
+    const res = await fetch(`/api/opportunities/${oppKey(id)}/stage-suggestion`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "dismiss" }),
@@ -908,7 +935,7 @@ export default function OpportunitiesClient({
       danger: true,
     });
     if (!ok) return;
-    const res = await fetch(`/api/opportunities/${o.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/opportunities/${o.public_id || o.id}`, { method: "DELETE" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) ui.error("删除失败", json.error);
     else {
@@ -937,7 +964,7 @@ export default function OpportunitiesClient({
       cur.map((x) => (x.id === opp.id ? { ...x, stage: nextStage } : x))
     );
     try {
-      const res = await fetch(`/api/opportunities/${opp.id}`, {
+      const res = await fetch(`/api/opportunities/${opp.public_id || opp.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1215,6 +1242,10 @@ export default function OpportunitiesClient({
   }
 
   useEffect(() => {
+    setViewMode(resolveOppViewMode());
+  }, []);
+
+  useEffect(() => {
     // 漏斗仅电脑宽屏（≥1024px）
     const desktopMq = window.matchMedia("(min-width: 1024px)");
     const apply = () => {
@@ -1224,11 +1255,7 @@ export default function OpportunitiesClient({
       if (!desktop) {
         setViewMode((m) => {
           if (m !== "funnel") return m;
-          try {
-            localStorage.setItem("crm:opportunities-view", "card");
-          } catch {
-            /* ignore */
-          }
+          persistOppViewMode("card");
           return "card";
         });
         endFunnelDrag();
@@ -1302,74 +1329,86 @@ export default function OpportunitiesClient({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="w-40 shrink-0">
-          <Select
-            multiple
-            value={stages}
-            onChange={onStagesChange}
-            placeholder="全部状态"
-            options={STAGE_OPTIONS}
-          />
-        </div>
-        <div className="relative w-80 max-w-full shrink-0">
-          <input
-            className={`input ${q ? "pr-9" : ""}`}
-            placeholder="搜索商机 / 客户 / 负责人"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-          {q ? (
-            <button
-              type="button"
-              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
-              aria-label="清除搜索"
-              title="清除"
-              onClick={() => {
-                setQ("");
-                if (page === 1) void load({ keyword: "", page: 1, force: true });
-                else setPage(1);
+      <CollapsibleListFilters
+        activeCount={
+          (stages.length ? 1 : 0) +
+          (createdFrom ? 1 : 0) +
+          (createdTo ? 1 : 0) +
+          (dateField === "updated_at" ? 1 : 0)
+        }
+        primary={
+          <div className="relative w-full min-w-0 md:w-80 md:max-w-full md:shrink-0">
+            <input
+              className={`input w-full ${q ? "pr-9" : ""}`}
+              placeholder="搜索商机 / 客户 / 负责人"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch();
               }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M6 6l12 12M18 6 6 18"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          ) : null}
-        </div>
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={createdFrom}
-            onChange={setCreatedFrom}
-            placeholder={dateField === "updated_at" ? "更新起始日" : "创建起始日"}
-            allowClear
-          />
-        </div>
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={createdTo}
-            onChange={setCreatedTo}
-            placeholder={dateField === "updated_at" ? "更新结束日" : "创建结束日"}
-            allowClear
-          />
-        </div>
-        {dateField === "updated_at" ? (
-          <span className="shrink-0 text-xs text-[var(--color-muted)]">
-            按更新时间
-          </span>
-        ) : null}
-        <Button variant="secondary" onClick={onSearch}>
-          搜索
-        </Button>
-      </div>
+            />
+            {q ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
+                aria-label="清除搜索"
+                title="清除"
+                onClick={() => {
+                  setQ("");
+                  if (page === 1) void load({ keyword: "", page: 1, force: true });
+                  else setPage(1);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M6 6l12 12M18 6 6 18"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
+          </div>
+        }
+        secondary={
+          <>
+            <div className="w-40 shrink-0">
+              <Select
+                multiple
+                value={stages}
+                onChange={onStagesChange}
+                placeholder="全部状态"
+                options={STAGE_OPTIONS}
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={createdFrom}
+                onChange={setCreatedFrom}
+                placeholder={dateField === "updated_at" ? "更新起始日" : "创建起始日"}
+                allowClear
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={createdTo}
+                onChange={setCreatedTo}
+                placeholder={dateField === "updated_at" ? "更新结束日" : "创建结束日"}
+                allowClear
+              />
+            </div>
+            {dateField === "updated_at" ? (
+              <span className="shrink-0 text-xs text-[var(--color-muted)]">
+                按更新时间
+              </span>
+            ) : null}
+            <Button variant="secondary" onClick={onSearch}>
+              搜索
+            </Button>
+          </>
+        }
+      />
       {error && (
         <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>
       )}
@@ -1633,7 +1672,7 @@ export default function OpportunitiesClient({
                     <button
                       type="button"
                       className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-white px-3 py-2.5 text-left transition hover:border-sky-300 hover:bg-sky-50/40"
-                      onClick={() => setQuoteDetailId(quote.id)}
+                      onClick={() => setQuoteDetailId(quote.public_id || quote.id)}
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">
@@ -1806,7 +1845,7 @@ export default function OpportunitiesClient({
         title={taskOpp ? `新建待办 · ${taskOpp.title}` : "新建待办"}
         description={
           taskOpp
-            ? `将关联客户「${taskOpp.customer_name || taskOpp.customer_id}」与当前商机`
+            ? `将关联客户「${taskOpp.customer_name || "客户"}」与当前商机`
             : undefined
         }
         onClose={() => setTaskOpp(null)}
@@ -1852,7 +1891,7 @@ export default function OpportunitiesClient({
             <table className="w-full min-w-[56rem] text-sm">
               <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                 <tr>
-                  <th className="w-14 whitespace-nowrap px-4 py-3">#</th>
+                  <th className="w-14 whitespace-nowrap px-4 py-3">序号</th>
                   <th className="whitespace-nowrap px-4 py-3">阶段</th>
                   <th className="whitespace-nowrap px-4 py-3">商机</th>
                   <th className="whitespace-nowrap px-4 py-3">客户</th>
@@ -1888,7 +1927,7 @@ export default function OpportunitiesClient({
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <AppLink
-                        href={`/customers/${o.customer_id}`}
+                        href={`/customers/${o.customer_public_id || o.customer_id}`}
                         className="text-link"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -2007,7 +2046,7 @@ export default function OpportunitiesClient({
                 <span className="shrink-0">{o.owner_name}</span>
               ) : null}
               <AppLink
-                href={`/customers/${o.customer_id}`}
+                href={`/customers/${o.customer_public_id || o.customer_id}`}
                 className="text-link"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -2191,7 +2230,7 @@ export default function OpportunitiesClient({
                                 ) : null}
                                 <div className="mt-1 truncate text-xs text-[var(--color-muted)]">
                                   <AppLink
-                                    href={`/customers/${o.customer_id}`}
+                                    href={`/customers/${o.customer_public_id || o.customer_id}`}
                                     className="text-link"
                                     onClick={(e) => e.stopPropagation()}
                                     onPointerDown={(e) => e.stopPropagation()}

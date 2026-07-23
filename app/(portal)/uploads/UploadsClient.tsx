@@ -11,6 +11,7 @@ import { useUi } from "@/components/ui/Feedback";
 import { StatusTag } from "@/components/ui/StatusTag";
 import { CardListSkeleton, TableSkeleton } from "@/components/ui/Skeleton";
 import { ViewModeToggle, useViewMode } from "@/components/ui/ViewModeToggle";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import { customerLabel, cn, formatAudioDuration } from "@/lib/utils";
 import { probeAudioDurationMs } from "@/lib/audio-duration";
@@ -29,6 +30,7 @@ export type Media = {
   status: string;
   customer_id: number | null;
   customer_name?: string;
+  customer_public_id?: string;
   customer_company_name?: string | null;
   uploader_name?: string | null;
   created_at: string;
@@ -202,7 +204,7 @@ function MediaRowActions({
           >
             {m.customer_id ? (
               <AppLink
-                href={`/customers/${m.customer_id}`}
+                href={`/customers/${m.customer_public_id || m.customer_id}`}
                 role="menuitem"
                 className="block px-3 py-2 text-sm hover:bg-[#eff6ff]"
                 onClick={() => setOpen(false)}
@@ -864,42 +866,49 @@ export default function UploadsClient({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="w-64 max-w-full shrink-0">
-          <input
-            className="input"
-            placeholder="搜索文件名 / 客户 / 上传人"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-        </div>
-        <div className="w-36 max-w-full shrink-0">
-          <Select
-            value={kindFilter}
-            onChange={(v) => {
-              setKindFilter(v);
-              setPage(1);
-            }}
-            options={KIND_OPTIONS}
-          />
-        </div>
-        <div className="w-36 max-w-full shrink-0">
-          <Select
-            value={statusFilter}
-            onChange={(v) => {
-              setStatusFilter(v);
-              setPage(1);
-            }}
-            options={STATUS_OPTIONS}
-          />
-        </div>
-        <Button variant="secondary" onClick={onSearch}>
-          搜索
-        </Button>
-      </div>
+      <CollapsibleListFilters
+        activeCount={(kindFilter ? 1 : 0) + (statusFilter ? 1 : 0)}
+        primary={
+          <div className="w-full min-w-0 md:w-64 md:max-w-full md:shrink-0">
+            <input
+              className="input w-full"
+              placeholder="搜索文件名 / 客户 / 上传人"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch();
+              }}
+            />
+          </div>
+        }
+        secondary={
+          <>
+            <div className="w-36 max-w-full shrink-0">
+              <Select
+                value={kindFilter}
+                onChange={(v) => {
+                  setKindFilter(v);
+                  setPage(1);
+                }}
+                options={KIND_OPTIONS}
+              />
+            </div>
+            <div className="w-36 max-w-full shrink-0">
+              <Select
+                value={statusFilter}
+                onChange={(v) => {
+                  setStatusFilter(v);
+                  setPage(1);
+                }}
+                options={STATUS_OPTIONS}
+              />
+            </div>
+            <Button variant="secondary" onClick={onSearch}>
+              搜索
+            </Button>
+          </>
+        }
+      />
 
       <Modal
         open={open}
@@ -1086,7 +1095,7 @@ export default function UploadsClient({
             <table className="w-full min-w-[68rem] text-sm">
               <thead className="bg-slate-50 text-left text-[var(--color-muted)]">
                 <tr>
-                  <th className="w-14 whitespace-nowrap px-4 py-3 font-medium">#</th>
+                  <th className="w-14 whitespace-nowrap px-4 py-3 font-medium">序号</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">类型</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">文件名</th>
                   <th className="whitespace-nowrap px-4 py-3 font-medium">时长</th>
@@ -1121,7 +1130,7 @@ export default function UploadsClient({
                     <td className="px-4 py-3">
                       {m.customer_id ? (
                         <AppLink
-                          href={`/customers/${m.customer_id}`}
+                          href={`/customers/${m.customer_public_id || m.customer_id}`}
                           className="text-[var(--color-accent)] hover:underline"
                         >
                           {customerDisplay(m)}
@@ -1188,7 +1197,7 @@ export default function UploadsClient({
                 <div className="text-sm">
                   {m.customer_id ? (
                     <AppLink
-                      href={`/customers/${m.customer_id}`}
+                      href={`/customers/${m.customer_public_id || m.customer_id}`}
                       className="text-[var(--color-accent)]"
                     >
                       {customerDisplay(m)}

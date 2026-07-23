@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 chcp 65001 >nul 2>&1
 
-REM One-click restart: stop PostgreSQL + Next.js if running, then start fresh (port 3001)
+REM One-click restart: stop PostgreSQL + Next.js if running, then start Turbopack dev server (port 3001)
 cd /d "%~dp0.."
 if errorlevel 1 (
   echo [error] cannot cd to project root
@@ -18,7 +18,7 @@ if not exist "%CRM_ROOT%\package.json" (
 )
 
 echo ========================================
-echo   Kaiyi CRM - starting (restart if running)...
+echo   Kaiyi CRM - starting Turbopack dev server...
 echo   Root: %CRM_ROOT%
 echo ========================================
 echo.

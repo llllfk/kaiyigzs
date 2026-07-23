@@ -14,6 +14,7 @@ import {
 
 export type CustomerListRow = {
   id: number;
+  public_id: string;
   company_name: string | null;
   name: string;
   phone: string | null;

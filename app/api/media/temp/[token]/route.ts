@@ -16,6 +16,7 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
       "Content-Type": hit.mime,
       "Cache-Control": "no-store",
       "Content-Length": String(hit.body.length),
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

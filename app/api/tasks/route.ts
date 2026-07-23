@@ -104,21 +104,26 @@ export async function GET(request: NextRequest) {
     }
     if (dueFrom) {
       params.push(dueFrom);
-      where.push(`t.due_at::date >= $${params.length}::date`);
+      where.push(`t.due_at >= $${params.length}::date`);
     }
     if (dueTo) {
       params.push(dueTo);
-      where.push(`t.due_at::date <= $${params.length}::date`);
+      where.push(`t.due_at < ($${params.length}::date + INTERVAL '1 day')`);
     }
     if (urgency === "overdue" || urgency === "urgent" || urgency === "normal") {
-      // 紧急程度只针对未完成待办（与列表标签规则一致）
-      where.push(`t.status NOT IN ('done','cancelled')`);
+      // 紧急程度只针对「待办」状态（已确认不再标逾期/紧急）
+      const shToday = `((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date AT TIME ZONE 'Asia/Shanghai')`;
+      where.push(`t.status = 'pending'`);
       if (urgency === "overdue") {
-        where.push(`t.due_at IS NOT NULL AND t.due_at::date < CURRENT_DATE`);
+        where.push(`t.due_at IS NOT NULL AND t.due_at < ${shToday}`);
       } else if (urgency === "urgent") {
-        where.push(`t.due_at IS NOT NULL AND t.due_at::date = CURRENT_DATE`);
+        where.push(
+          `t.due_at IS NOT NULL AND t.due_at >= ${shToday} AND t.due_at < ${shToday} + INTERVAL '1 day'`
+        );
       } else {
-        where.push(`(t.due_at IS NULL OR t.due_at::date > CURRENT_DATE)`);
+        where.push(
+          `(t.due_at IS NULL OR t.due_at >= ${shToday} + INTERVAL '1 day')`
+        );
       }
     }
 
@@ -131,12 +136,13 @@ export async function GET(request: NextRequest) {
        ${whereSql}`;
     const selectSql = `SELECT t.*,
          TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+         c.public_id AS customer_public_id,
          o.title AS opportunity_title,
          u.name AS owner_name,
          cu.name AS customer_owner_name`;
     const orderSql = `ORDER BY
          CASE WHEN t.status = 'done' THEN 1 ELSE 0 END,
-         t.due_at NULLS LAST,
+         t.created_at DESC,
          t.id DESC`;
 
     if (!paginate) {

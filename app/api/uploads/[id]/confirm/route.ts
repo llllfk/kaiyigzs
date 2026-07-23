@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
-import { assertCanAccessCustomer } from "@/lib/permissions";
+import { assertCanAccessCustomer, assertCanAccessMedia } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { commitMediaAnalysis } from "@/lib/analyze";
 import type { InsightResult } from "@/lib/insights";
 import { mergePainPoints } from "@/lib/pain-points";
+import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -23,9 +24,12 @@ export async function POST(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    const { id } = await params;
-    const mediaId = Number(id);
-    if (!mediaId) return jsonError("缺少 id");
+    const resolved = await resolvePublicRecordId("media_assets", (await params).id);
+    if (!resolved) return jsonError("上传记录不存在", 404);
+    const mediaId = Number(resolved.id);
+    if (!mediaId) return jsonError("记录参数无效");
+
+    await assertCanAccessMedia(user, mediaId);
 
     const mediaRes = await pool.query(`SELECT * FROM media_assets WHERE id = $1`, [
       mediaId,

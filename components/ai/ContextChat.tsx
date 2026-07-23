@@ -359,10 +359,10 @@ export function ContextChat({
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={m.id ?? `${m.role}-${i}`} className={cn("max-w-[95%]", m.role === "user" ? "ml-auto" : "mr-auto")}>
+          <div key={m.id ?? `${m.role}-${i}`} className={cn("max-w-[95%] min-w-0", m.role === "user" ? "ml-auto" : "mr-auto")}>
             <div
               className={cn(
-                "rounded-lg px-3 py-2",
+                "rounded-lg px-3 py-2 break-words",
                 m.role === "user"
                   ? "bg-[var(--color-accent)] text-white whitespace-pre-wrap text-sm"
                   : "border border-[var(--color-border)] bg-white text-[var(--color-text)]"

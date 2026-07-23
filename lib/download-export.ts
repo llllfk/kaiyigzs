@@ -16,6 +16,24 @@ export function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(objectUrl);
 }
 
+/** 必须优先 filename*（UTF-8 中文名）；filename= 仅为 ASCII 兜底（中文会被替换成 _） */
+export function filenameFromContentDisposition(
+  cd: string,
+  fallbackFilename: string
+) {
+  const star = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = cd.match(/(?:^|[;\s])filename\s*=\s*"?([^";]+)"?/i);
+  if (plain?.[1]) return plain[1].trim();
+  return fallbackFilename;
+}
+
 export async function downloadExport(url: string, fallbackFilename: string) {
   const res = await fetch(url);
   if (!res.ok) {
@@ -30,8 +48,5 @@ export async function downloadExport(url: string, fallbackFilename: string) {
   }
   const blob = await res.blob();
   const cd = res.headers.get("Content-Disposition") || "";
-  const match = cd.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
-  const rawName = match?.[1] || match?.[2] || "";
-  const filename = rawName ? decodeURIComponent(rawName) : fallbackFilename;
-  downloadBlob(blob, filename);
+  downloadBlob(blob, filenameFromContentDisposition(cd, fallbackFilename));
 }

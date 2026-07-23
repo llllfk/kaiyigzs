@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
        ${where}`;
     const selectSql = `SELECT o.*,
          TRIM(BOTH ' · ' FROM CONCAT_WS(' · ', NULLIF(c.company_name,''), NULLIF(c.name,''))) AS customer_name,
+         c.public_id AS customer_public_id,
          u.name AS owner_name`;
 
     if (!paginate) {

@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
     const user = await requireSession();
     const companyId = requireCompanyId(user);
     const id = Number((await params).id);
-    if (!id) return jsonError("ID 无效");
+    if (!id) return jsonError("音色参数无效");
     const row = await loadOwned(id, companyId);
     if (!row) return jsonError("音色不存在", 404);
     return jsonOk(row);
@@ -54,7 +54,7 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
       throw new AuthError("仅公司管理员或销售经理可删除复刻音色", 403);
     }
     const id = Number((await params).id);
-    if (!id) return jsonError("ID 无效");
+    if (!id) return jsonError("音色参数无效");
     const row = await loadOwned(id, companyId);
     if (!row) return jsonError("音色不存在", 404);
 
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
     const user = await requireSession();
     const companyId = requireCompanyId(user);
     const id = Number((await params).id);
-    if (!id) return jsonError("ID 无效");
+    if (!id) return jsonError("音色参数无效");
     const row = await loadOwned(id, companyId);
     if (!row) return jsonError("音色不存在", 404);
 
@@ -134,14 +134,14 @@ export async function POST(request: NextRequest, { params }: Ctx) {
         return jsonError("样音大小需在 10MB 以内");
       }
       const speakerId = String(row.provider_speaker_id || "").trim();
-      if (!speakerId) return jsonError("缺少 Speaker ID，无法训练");
+      if (!speakerId) return jsonError("音色尚未完成平台配置，无法训练");
       const metaPre =
         row.meta && typeof row.meta === "object"
           ? (row.meta as Record<string, unknown>)
           : {};
       const remainPre = Number(metaPre.available_training_times);
       if (Number.isFinite(remainPre) && remainPre <= 0) {
-        return jsonError("该音色剩余训练次数为 0，请联系平台换新 Speaker ID", 400);
+        return jsonError("该音色剩余训练次数为 0，请联系平台管理员处理", 400);
       }
 
       const buf = Buffer.from(await file.arrayBuffer());
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
      *  控制台已训练的音色可直接试听，并同步本地状态为 ready。 */
     if (action === "preview") {
       const speakerId = String(row.provider_speaker_id || "").trim();
-      if (!speakerId) return jsonError("缺少 Speaker ID");
+      if (!speakerId) return jsonError("音色尚未完成平台配置");
 
       const { status, raw } = await queryVoiceCloneStatus({
         creds,
@@ -331,7 +331,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
       return jsonError("音色未就绪，无法合成");
     }
     const speakerId = String(row.provider_speaker_id || "").trim();
-    if (!speakerId) return jsonError("缺少 Speaker ID");
+    if (!speakerId) return jsonError("音色尚未完成平台配置");
     const text = String(body.text || "").trim();
     if (!text) return jsonError("请填写合成文案");
     if (text.length > VOICE_SYNTH_TEXT_MAX) {

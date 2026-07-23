@@ -4,10 +4,11 @@ type TempEntry = {
   body: Buffer;
   mime: string;
   expiresAt: number;
+  reads: number;
 };
 
 const store = new Map<string, TempEntry>();
-const TTL_MS = 20 * 60 * 1000;
+const TTL_MS = 10 * 60 * 1000;
 
 function sweep() {
   const now = Date.now();
@@ -24,6 +25,7 @@ export function putTempAudio(body: Buffer, mime?: string | null) {
     body,
     mime: mime || "application/octet-stream",
     expiresAt: Date.now() + TTL_MS,
+    reads: 0,
   });
   return token;
 }
@@ -36,6 +38,8 @@ export function takeTempAudio(token: string): TempEntry | null {
     store.delete(token);
     return null;
   }
+  hit.reads += 1;
+  if (hit.reads > 3) { store.delete(token); return null; }
   return hit;
 }
 

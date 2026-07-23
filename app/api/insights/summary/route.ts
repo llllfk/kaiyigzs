@@ -91,7 +91,8 @@ export async function GET() {
         cFilter.params
       ),
       pool.query(
-        `SELECT i.id, i.kind, i.summary, i.created_at, c.name AS customer_name, i.customer_id
+        `SELECT i.id, i.kind, i.summary, i.created_at, c.name AS customer_name,
+                i.customer_id, c.public_id AS customer_public_id
          FROM ai_insights i
          LEFT JOIN customers c ON c.id = i.customer_id
          WHERE i.company_id = $1

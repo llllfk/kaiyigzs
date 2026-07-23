@@ -4,6 +4,7 @@ import type { SessionUser } from "@/types";
 import { crmRole } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
 import { randomBytes } from "crypto";
+import { securityHash } from "@/lib/security";
 
 export const QUOTE_STATUSES = [
   "draft",
@@ -375,7 +376,8 @@ export type QuoteShareRow = {
   id: number;
   quote_id: number;
   company_id: number;
-  token: string;
+  token: string | null;
+  token_hash?: string | null;
   status: string;
   expires_at: string;
   max_views: number;
@@ -421,15 +423,15 @@ export function serializeQuoteShare(
   views?: QuoteShareViewRow[]
 ) {
   if (!share) return null;
-  const path = sharePublicPath(share.token);
-  const url = origin ? `${origin.replace(/\/$/, "")}${path}` : path;
+  const path = share.token ? sharePublicPath(share.token) : null;
+  const url = path ? (origin ? `${origin.replace(/\/$/, "")}${path}` : path) : null;
   const expired = new Date(share.expires_at).getTime() <= Date.now();
   const viewsExhausted =
     !share.confirmed_at && Number(share.view_count) >= Number(share.max_views);
   const viewRows = views || [];
   return {
     id: share.id,
-    token: share.token,
+    token: share.token || undefined,
     status: share.status,
     path,
     url,
@@ -508,6 +510,7 @@ export async function createQuoteShare(params: {
 
   const settings = await getQuoteSettings(user.company_id);
   const token = newShareToken();
+  const hash = securityHash(token);
   const expiresAt = new Date(
     Date.now() + settings.share_valid_days * 24 * 60 * 60 * 1000
   );
@@ -524,13 +527,13 @@ export async function createQuoteShare(params: {
     );
     const inserted = await client.query(
       `INSERT INTO quote_shares
-        (quote_id, company_id, token, status, expires_at, max_views, created_by)
-       VALUES ($1,$2,$3,'active',$4,$5,$6)
+        (quote_id, company_id, token, token_hash, status, expires_at, max_views, created_by)
+       VALUES ($1,$2,NULL,$3,'active',$4,$5,$6)
        RETURNING *`,
       [
         quote.id,
         user.company_id,
-        token,
+        hash,
         expiresAt.toISOString(),
         settings.share_max_views,
         user.id,
@@ -544,7 +547,7 @@ export async function createQuoteShare(params: {
       targetId: quote.id,
       summary: `生成客户确认链接，有效 ${settings.share_valid_days} 天 / ${settings.share_max_views} 次`,
     });
-    return inserted.rows[0] as QuoteShareRow;
+    return { ...inserted.rows[0], token } as QuoteShareRow;
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -592,11 +595,18 @@ export type PublicQuoteErrorCode =
   | "expired"
   | "views_exhausted";
 
+async function findShareByPublicToken(token: string) {
+  const res = await pool.query(
+    `SELECT * FROM quote_shares
+     WHERE token_hash=$1 OR (token_hash IS NULL AND token=$2)
+     LIMIT 1`,
+    [securityHash(token), token]
+  );
+  return res.rows[0] as QuoteShareRow | undefined;
+}
+
 export async function loadPublicQuoteByToken(token: string) {
-  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
-    token,
-  ]);
-  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  const share = await findShareByPublicToken(token);
   if (!share) {
     return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
   }
@@ -647,10 +657,7 @@ export async function loadPublicQuoteByToken(token: string) {
 
 /** 记录一次打开；同一时刻只会计 1 次（事务内校验上限） */
 export async function recordPublicQuoteView(token: string) {
-  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
-    token,
-  ]);
-  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  const share = await findShareByPublicToken(token);
   if (!share) {
     return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
   }
@@ -740,10 +747,7 @@ export async function updatePublicQuoteViewDuration(params: {
     1 * 60 * 60 * 1000, // 单次查看最长记 1 小时
     Math.max(0, Math.floor(Number(params.durationMs) || 0))
   );
-  const shareRes = await pool.query(`SELECT id FROM quote_shares WHERE token = $1`, [
-    params.token,
-  ]);
-  const share = shareRes.rows[0];
+  const share = await findShareByPublicToken(params.token);
   if (!share) {
     return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
   }
@@ -773,10 +777,7 @@ export async function confirmPublicQuote(params: {
   confirmerName?: string;
   confirmerNote?: string;
 }) {
-  const shareRes = await pool.query(`SELECT * FROM quote_shares WHERE token = $1`, [
-    params.token,
-  ]);
-  const share = shareRes.rows[0] as QuoteShareRow | undefined;
+  const share = await findShareByPublicToken(params.token);
   if (!share) {
     return { ok: false as const, code: "not_found" as PublicQuoteErrorCode };
   }

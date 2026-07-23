@@ -13,6 +13,12 @@ import {
   normalizeNotificationPrefs,
 } from "@/lib/notification-prefs";
 import { useSessionUserContext } from "@/components/shared/SessionUserContext";
+import {
+  MOBILE_NAV_LABELS,
+  normalizeUiPrefs,
+  type MobileNavStyle,
+} from "@/lib/ui-prefs";
+import { cn } from "@/lib/utils";
 
 type PlatformEnvItem = {
   key: string;
@@ -48,7 +54,8 @@ const SOURCE_LABEL: Record<PlatformEnvItem["source"], string> = {
 export default function SettingsPage() {
   const ui = useUi();
   const router = useAppRouter();
-  const { user: sessionUser, updateUser } = useSessionUserContext();
+  const { user: sessionUser, updateUser, uiPrefs, setUiPrefs } =
+    useSessionUserContext();
   const [user, setUser] = useState<SessionUser>(sessionUser);
   const [name, setName] = useState(sessionUser.name || "");
   const [email, setEmail] = useState(sessionUser.email || "");
@@ -75,16 +82,58 @@ export default function SettingsPage() {
 
   const [notifPrefs, setNotifPrefs] = useState<Record<string, boolean>>({});
   const [savingNotif, setSavingNotif] = useState(false);
+  const [mobileNav, setMobileNav] = useState<MobileNavStyle>(uiPrefs.mobile_nav);
+  const [savingUi, setSavingUi] = useState(false);
+
+  useEffect(() => {
+    setMobileNav(uiPrefs.mobile_nav);
+  }, [uiPrefs.mobile_nav]);
 
   const isPlatformAdmin =
     user?.role === "super_admin" && !user?.act_as_company_id;
 
   async function loadMe() {
-    const res = await fetch("/api/notification-prefs");
+    const res = await fetch("/api/auth/me");
     const json = await res.json();
-    if (res.ok && json.data) {
-      const allowed = notificationTypesForUser(sessionUser);
-      setNotifPrefs(normalizeNotificationPrefs(json.data, allowed));
+    if (!res.ok || !json.data) return;
+    const allowed = notificationTypesForUser(sessionUser);
+    if (json.data.notification_prefs != null) {
+      setNotifPrefs(
+        normalizeNotificationPrefs(json.data.notification_prefs, allowed)
+      );
+    }
+    if (json.data.ui_prefs != null) {
+      const next = normalizeUiPrefs(json.data.ui_prefs);
+      setMobileNav(next.mobile_nav);
+      setUiPrefs(next);
+    }
+  }
+
+  async function saveUiPrefs() {
+    setSavingUi(true);
+    try {
+      const next = normalizeUiPrefs({ mobile_nav: mobileNav });
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ui_prefs: next }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        ui.error("保存手机导航失败", json.error || `请求失败（${res.status}）`);
+        return;
+      }
+      const saved = normalizeUiPrefs(json.data?.ui_prefs ?? next);
+      setMobileNav(saved.mobile_nav);
+      setUiPrefs(saved);
+      ui.success("手机导航已保存");
+    } catch (e) {
+      ui.error(
+        "保存手机导航失败",
+        e instanceof Error ? e.message : "网络异常，请稍后重试"
+      );
+    } finally {
+      setSavingUi(false);
     }
   }
 
@@ -230,8 +279,8 @@ export default function SettingsPage() {
       ui.error("请填写当前密码");
       return;
     }
-    if (newPassword.length < 6) {
-      ui.error("新密码至少 6 位");
+    if (newPassword.length < 10) {
+      ui.error("新密码至少 10 位，并同时包含字母和数字");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -372,6 +421,46 @@ export default function SettingsPage() {
 
       <section className="surface max-w-2xl p-5 md:p-6">
         <div className="mb-4">
+          <h2 className="text-base font-semibold">手机导航</h2>
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
+            仅影响手机端。简洁=底部导航栏；完整=无底栏，点左上角「菜单」从左侧栏进入全部功能。电脑端始终为左侧栏。
+          </p>
+        </div>
+        <div
+          className="inline-flex rounded-lg border border-[var(--color-border)] bg-white p-0.5"
+          role="group"
+          aria-label="手机导航样式"
+        >
+          {(["compact", "full"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition",
+                mobileNav === v
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "text-[var(--color-muted)] hover:text-[var(--color-text)]"
+              )}
+              aria-pressed={mobileNav === v}
+              onClick={() => setMobileNav(v)}
+            >
+              {MOBILE_NAV_LABELS[v]}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-end border-t border-[var(--color-border)] pt-4">
+          <Button
+            type="button"
+            disabled={savingUi || mobileNav === uiPrefs.mobile_nav}
+            onClick={() => void saveUiPrefs()}
+          >
+            {savingUi ? "保存中…" : "保存手机导航"}
+          </Button>
+        </div>
+      </section>
+
+      <section className="surface max-w-2xl p-5 md:p-6">
+        <div className="mb-4">
           <h2 className="text-base font-semibold">个人资料</h2>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
             可修改姓名、手机号、邮箱；手机号必填，邮箱可选，均需全平台唯一。
@@ -432,9 +521,7 @@ export default function SettingsPage() {
                   ? "平台账号"
                   : user.act_as_company_name
                     ? `当前公司视图：${user.act_as_company_name}`
-                    : user.role === "super_admin" && user.company_id
-                      ? `公司 ID：${user.company_id}`
-                      : null}
+                    : null}
               </p>
               <Button type="submit" disabled={savingProfile}>
                 {savingProfile ? "保存中…" : "保存资料"}
@@ -503,7 +590,7 @@ export default function SettingsPage() {
           <div className="mb-4">
             <h2 className="text-base font-semibold">修改密码</h2>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
-              需验证当前密码；新密码至少 6 位。
+              需验证当前密码；新密码至少 10 位，并同时包含字母和数字。
             </p>
           </div>
           <form onSubmit={savePassword} className="space-y-4">

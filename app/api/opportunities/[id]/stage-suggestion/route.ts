@@ -4,6 +4,7 @@ import { requireSession, AuthError } from "@/lib/auth";
 import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { resolvePublicRecordId } from "@/lib/public-id";
 import { recordOpportunityStageChange } from "@/lib/opportunity-stage-history";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -28,7 +29,9 @@ async function assertOppAccess(user: Awaited<ReturnType<typeof requireSession>>,
 export async function POST(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
-    const { id } = await params;
+    const resolved = await resolvePublicRecordId("opportunities", (await params).id);
+    if (!resolved) return jsonError("商机不存在", 404);
+    const id = String(resolved.id);
     const body = await request.json();
     const action = String(body.action || "accept");
     const opp = await loadOpp(id);

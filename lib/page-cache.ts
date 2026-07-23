@@ -1,11 +1,23 @@
 /** 站内列表/详情短缓存：菜单预取 + 二次进入复用；超时后下次打开再拉 */
 
 const TTL_MS = 120_000;
+const MAX_ENTRIES = 80;
 
 type Entry = { at: number; payload: unknown };
 
 const mem = new Map<string, Entry>();
 const inflight = new Map<string, Promise<void>>();
+
+function pruneCache(now = Date.now()) {
+  for (const [key, entry] of mem) {
+    if (now - entry.at > TTL_MS) mem.delete(key);
+  }
+  while (mem.size > MAX_ENTRIES) {
+    const oldest = mem.keys().next().value as string | undefined;
+    if (!oldest) break;
+    mem.delete(oldest);
+  }
+}
 
 /** 导航预热并发上限，避免进站同时打爆 DB */
 const WARM_CONCURRENCY = 2;
@@ -53,11 +65,18 @@ export function pageCachePeek<T = unknown>(url: string): T | null {
     mem.delete(key);
     return null;
   }
+  // Map 的插入顺序作为轻量 LRU；命中后移到末尾。
+  mem.delete(key);
+  mem.set(key, hit);
   return hit.payload as T;
 }
 
 export function pageCachePut(url: string, payload: unknown) {
-  mem.set(normalize(url), { at: Date.now(), payload });
+  const now = Date.now();
+  const key = normalize(url);
+  mem.delete(key);
+  mem.set(key, { at: now, payload });
+  pruneCache(now);
 }
 
 export function pageCacheInvalidate(prefix?: string) {

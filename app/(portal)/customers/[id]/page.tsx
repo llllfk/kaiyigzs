@@ -62,6 +62,14 @@ export default function CustomerDetailPage() {
   const id = params.id;
   const detailSeed = pageCachePeek<{ data?: unknown }>(`/api/customers/${id}`);
   const [data, setData] = useState<any>(() => detailSeed?.data || null);
+  const internalCustomerId = Number(data?.id || 0);
+
+  useEffect(() => {
+    const publicId = String(data?.public_id || "");
+    if (publicId && id !== publicId) {
+      window.history.replaceState(window.history.state, "", `/customers/${publicId}`);
+    }
+  }, [data?.public_id, id]);
   const [error, setError] = useState("");
   const [followOpen, setFollowOpen] = useState(false);
   const [oppOpen, setOppOpen] = useState(false);
@@ -158,7 +166,7 @@ export default function CustomerDetailPage() {
   const [taskSubmitting, setTaskSubmitting] = useState(false);
 
   async function load(opts?: { force?: boolean } | boolean) {
-    const force = typeof opts === "boolean" ? opts : opts?.force === true;
+    const force = (typeof opts === "boolean" ? opts : opts?.force === true) || /^\d+$/.test(id);
     const url = `/api/customers/${id}`;
     const cached = pageCachePeek<{ data?: unknown }>(url);
     if (!force && cached?.data) {
@@ -171,20 +179,30 @@ export default function CustomerDetailPage() {
       force,
     });
     if (!res.ok) setError(json.error || "加载失败");
-    else setData(json.data);
+    else {
+      setData(json.data);
+      const publicId = String((json.data as { public_id?: string } | undefined)?.public_id || "");
+      if (publicId && id !== publicId) {
+        window.history.replaceState(window.history.state, "", `/customers/${publicId}`);
+      }
+    }
   }
 
   async function loadTasks() {
-    const res = await fetch(`/api/tasks?customer_id=${id}`);
+    const res = await fetch(`/api/tasks?customer_id=${internalCustomerId}`);
     const json = await res.json();
     if (res.ok) setTasks(json.data || []);
   }
 
   useEffect(() => {
     load();
-    loadTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (internalCustomerId) void loadTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [internalCustomerId]);
 
   useEffect(() => {
     if (!data?.customer) return;
@@ -481,67 +499,6 @@ export default function CustomerDetailPage() {
     resetEditMediaModal();
   }
 
-  async function openEditMedia(m: {
-    id: number;
-    file_name: string;
-    kind?: string;
-    pain_points?: string[];
-    competitors?: string[];
-    transcript?: string;
-  }) {
-    setEditMedia({
-      id: m.id,
-      file_name: m.file_name,
-      kind: m.kind === "wechat" ? "wechat" : "call",
-    });
-    setEditMediaKind(m.kind === "wechat" ? "wechat" : "call");
-    setEditMediaTranscript(m.transcript || "");
-    setEditMediaPains(
-      Array.isArray(m.pain_points) ? m.pain_points.filter(Boolean).join("\n") : ""
-    );
-    setEditMediaComps(
-      Array.isArray(m.competitors) ? m.competitors.filter(Boolean).join("\n") : ""
-    );
-    setEditMediaReanalyze(false);
-    setEditMediaPhase("form");
-    setEditMediaDraft(null);
-    setEditMediaSummary("");
-    setEditMediaLoading(true);
-    try {
-      const res = await fetch(`/api/uploads/${m.id}`);
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json.data) {
-        const full = json.data;
-        setEditMediaTranscript(String(full.transcript || ""));
-        const rj = full.result_json || {};
-        const pains = Array.isArray(full.pain_points)
-          ? full.pain_points
-          : Array.isArray(rj.pain_points)
-            ? rj.pain_points
-            : [];
-        const comps = Array.isArray(full.competitors)
-          ? full.competitors
-          : Array.isArray(rj.competitors)
-            ? rj.competitors
-            : [];
-        setEditMediaPains(
-          pains.map((x: unknown) => String(x || "").trim()).filter(Boolean).join("\n")
-        );
-        setEditMediaComps(
-          comps.map((x: unknown) => String(x || "").trim()).filter(Boolean).join("\n")
-        );
-        if (full.kind) setEditMediaKind(full.kind === "wechat" ? "wechat" : "call");
-        if (full.file_name) {
-          setEditMedia((prev) =>
-            prev ? { ...prev, file_name: full.file_name } : prev
-          );
-        }
-      }
-    } finally {
-      setEditMediaLoading(false);
-    }
-  }
-
   async function submitEditMedia() {
     if (!editMedia) return;
     if (editMediaPhase === "review") return;
@@ -560,7 +517,7 @@ export default function CustomerDetailPage() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            customer_id: Number(id),
+            customer_id: internalCustomerId,
             transcript: editMediaTranscript,
             reanalyze: true,
           }),
@@ -607,7 +564,7 @@ export default function CustomerDetailPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: Number(id),
+          customer_id: internalCustomerId,
           transcript: editMediaTranscript,
           pain_points: linesToList(editMediaPains),
           competitors: linesToList(editMediaComps),
@@ -733,7 +690,7 @@ export default function CustomerDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: Number(id),
+          customer_id: internalCustomerId,
           type: followType,
           content: followContent,
           date: followDate || undefined,
@@ -770,7 +727,7 @@ export default function CustomerDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: Number(id),
+          customer_id: internalCustomerId,
           title: oppTitle,
           stage: oppStage,
           expected_close_date: oppDate || null,
@@ -803,7 +760,7 @@ export default function CustomerDetailPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: Number(id),
+          customer_id: internalCustomerId,
           opportunity_id: taskOppId ? Number(taskOppId) : null,
           title: taskTitle.trim(),
           due_at,
@@ -846,23 +803,6 @@ export default function CustomerDetailPage() {
     }
   }
 
-  async function deleteMedia(m: { id: number; file_name: string }) {
-    const ok = await ui.confirm({
-      title: "确认删除解析记录？",
-      description: `将永久删除「${m.file_name}」及其相关洞察，此操作不可恢复。`,
-      confirmText: "删除",
-      danger: true,
-    });
-    if (!ok) return;
-    const res = await fetch(`/api/uploads/${m.id}`, { method: "DELETE" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) ui.error("删除失败", json.error);
-    else {
-      ui.success("解析记录已删除");
-      await load({ force: true });
-    }
-  }
-
   async function deleteTask(t: { id: number; title: string }) {
     const ok = await ui.confirm({
       title: "确认删除待办？",
@@ -876,24 +816,6 @@ export default function CustomerDetailPage() {
     if (!res.ok) ui.error("删除失败", json.error);
     else {
       ui.success("待办已删除");
-      await loadTasks();
-    }
-  }
-
-  async function deleteOpportunity(o: { id: number; title: string }) {
-    const ok = await ui.confirm({
-      title: "确认删除商机？",
-      description: `将永久删除「${o.title}」。关联待办会解除商机关联。`,
-      confirmText: "删除",
-      danger: true,
-    });
-    if (!ok) return;
-    const res = await fetch(`/api/opportunities/${o.id}`, { method: "DELETE" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) ui.error("删除失败", json.error);
-    else {
-      ui.success("商机已删除");
-      await load({ force: true });
       await loadTasks();
     }
   }
@@ -1059,13 +981,13 @@ export default function CustomerDetailPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4 overflow-x-clip">
       {/* 英雄区：身份 + 元信息网格 + 操作 */}
-      <header className="customer-hero p-5 sm:p-6">
+      <header className="customer-hero p-4 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight sm:text-[1.75rem]">
+              <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight sm:text-[1.75rem]">
                 {data.company_name || data.name}
               </h1>
               <StatusTag kind="customer" value={data.status} />
@@ -1092,7 +1014,7 @@ export default function CustomerDetailPage() {
                   const res = await fetch("/api/pool", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "release", customer_id: Number(id) }),
+                    body: JSON.stringify({ action: "release", customer_id: internalCustomerId }),
                   });
                   const json = await res.json();
                   if (!res.ok) ui.error("放入公海失败", json.error);
@@ -1117,7 +1039,7 @@ export default function CustomerDetailPage() {
                   const res = await fetch("/api/pool", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "claim", customer_id: Number(id) }),
+                    body: JSON.stringify({ action: "claim", customer_id: internalCustomerId }),
                   });
                   const json = await res.json();
                   if (!res.ok) ui.error("领取失败", json.error);
@@ -1130,6 +1052,16 @@ export default function CustomerDetailPage() {
                 领取到私海
               </Button>
             )}
+            <Button
+              variant="secondary"
+              onClick={() => {
+                document
+                  .getElementById("customer-ai-assistant")
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            >
+              AI 助手
+            </Button>
           </div>
         </div>
 
@@ -1151,48 +1083,6 @@ export default function CustomerDetailPage() {
             <div className="value">{data.source || "—"}</div>
           </div>
         </div>
-
-        {nextSteps.length > 0 && (
-          <div className="mt-5 border-t border-[var(--color-border)]/80 pt-4">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-muted)]">
-                下一步
-              </h2>
-              <span className="text-[11px] text-[var(--color-muted)]">
-                待办 / AI 建议 / 跟进节奏
-              </span>
-            </div>
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {nextSteps.map((step) => (
-                <li
-                  key={step.id}
-                  className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2.5 ${step.tone}`}
-                >
-                  <div className="min-w-0">
-                    <div className="line-clamp-2 text-sm font-medium leading-snug">
-                      {step.title}
-                    </div>
-                    {step.detail ? (
-                      <div className="mt-0.5 line-clamp-2 text-[11px] opacity-80">
-                        {step.detail}
-                      </div>
-                    ) : null}
-                  </div>
-                  {step.actionLabel && step.onAction ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="!shrink-0 !px-2 !py-1 !text-xs"
-                      onClick={step.onAction}
-                    >
-                      {step.actionLabel}
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* 客户画像并入英雄区 */}
         <div className="mt-5 border-t border-[var(--color-border)]/80 pt-4">
@@ -1379,6 +1269,48 @@ export default function CustomerDetailPage() {
             </p>
           )}
         </div>
+
+        {nextSteps.length > 0 && (
+          <div className="mt-5 border-t border-[var(--color-border)]/80 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-muted)]">
+                下一步
+              </h2>
+              <span className="text-[11px] text-[var(--color-muted)]">
+                待办 / AI 建议 / 跟进节奏
+              </span>
+            </div>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {nextSteps.map((step) => (
+                <li
+                  key={step.id}
+                  className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2.5 ${step.tone}`}
+                >
+                  <div className="min-w-0">
+                    <div className="line-clamp-2 text-sm font-medium leading-snug">
+                      {step.title}
+                    </div>
+                    {step.detail ? (
+                      <div className="mt-0.5 line-clamp-2 text-[11px] opacity-80">
+                        {step.detail}
+                      </div>
+                    ) : null}
+                  </div>
+                  {step.actionLabel && step.onAction ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="!shrink-0 !px-2 !py-1 !text-xs"
+                      onClick={step.onAction}
+                    >
+                      {step.actionLabel}
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
 
       {error && (
@@ -1420,7 +1352,7 @@ export default function CustomerDetailPage() {
                   return (
                   <li
                     key={m.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-slate-50/60 px-3 py-2.5"
+                    className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-slate-50/60 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
@@ -1435,42 +1367,30 @@ export default function CustomerDetailPage() {
                       {(pains.length > 0 || comps.length > 0) && (
                         <div className="mt-1.5 flex flex-col gap-1">
                           {pains.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <span className="shrink-0 text-[10px] font-semibold text-[var(--color-muted)]">
                                 痛点
                               </span>
                               {pains.map((p: string) => (
-                                <TagChip key={p} text={p} tone="amber" />
+                                <TagChip key={p} text={p} tone="amber" maxWidthClass="max-w-[8rem]" />
                               ))}
                             </div>
                           )}
                           {comps.length > 0 && (
-                            <div className="flex flex-wrap items-center gap-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-1">
                               <span className="shrink-0 text-[10px] font-semibold text-[var(--color-muted)]">
                                 竞品
                               </span>
                               {comps.map((p: string) => (
-                                <TagChip key={p} text={p} tone="rose" />
+                                <TagChip key={p} text={p} tone="rose" maxWidthClass="max-w-[8rem]" />
                               ))}
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
                       <StatusTag kind="media" value={m.status} />
-                      <IconButton
-                        icon="pencil"
-                        label="编辑"
-                        variant="secondary"
-                        onClick={() => void openEditMedia(m)}
-                      />
-                      <IconButton
-                        icon="trash"
-                        label="删除"
-                        variant="danger"
-                        onClick={() => void deleteMedia(m)}
-                      />
                       {m.status !== "analyzed" && (
                         <Button
                           variant="secondary"
@@ -1520,12 +1440,6 @@ export default function CustomerDetailPage() {
                     <span className="min-w-0 truncate text-sm font-medium">{o.title}</span>
                     <div className="flex shrink-0 items-center gap-2">
                       <StatusTag kind="stage" value={o.stage} />
-                      <IconButton
-                        icon="trash"
-                        label="删除商机"
-                        variant="danger"
-                        onClick={() => void deleteOpportunity(o)}
-                      />
                     </div>
                   </li>
                 ))}
@@ -1562,7 +1476,7 @@ export default function CustomerDetailPage() {
                   {tasks.slice(0, 12).map((t) => (
                     <li
                       key={t.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--color-border)] bg-slate-50/60 px-3 py-2.5"
+                      className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-slate-50/60 px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
                     >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
@@ -1573,7 +1487,11 @@ export default function CustomerDetailPage() {
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[var(--color-muted)]">
                         <StatusTag kind="task" value={t.status} />
-                        {t.opportunity_title ? <span>商机 {t.opportunity_title}</span> : null}
+                        {t.opportunity_title ? (
+                          <span className="min-w-0 max-w-full truncate">
+                            商机 {t.opportunity_title}
+                          </span>
+                        ) : null}
                         {t.owner_name ? <span>{t.owner_name}</span> : null}
                         <span>
                           {t.due_at
@@ -1582,7 +1500,7 @@ export default function CustomerDetailPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                       {t.status !== "done" && (
                         <IconButton
                           icon="check"
@@ -1605,9 +1523,9 @@ export default function CustomerDetailPage() {
             )}
           </section>
 
-          <section className="surface p-5">
+          <section className="surface p-4 sm:p-5">
             <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
+              <div className="min-w-0">
                 <h2 className="text-base font-semibold">跟进时间线</h2>
                 <p className="mt-0.5 text-xs text-[var(--color-muted)]">
                   共 {(data.follow_ups || []).length} 条记录
@@ -1651,7 +1569,7 @@ export default function CustomerDetailPage() {
                           {new Date(f.followed_at).toLocaleString("zh-CN")}
                         </time>
                       </div>
-                      <div className="mt-2 text-sm leading-relaxed whitespace-pre-wrap">
+                      <div className="mt-2 break-words text-sm leading-relaxed whitespace-pre-wrap">
                         {f.content}
                       </div>
                       </div>
@@ -1663,18 +1581,21 @@ export default function CustomerDetailPage() {
           </section>
         </div>
 
-        <aside className="customer-rail flex min-h-[28rem] flex-col p-3">
+        <aside
+          id="customer-ai-assistant"
+          className="customer-rail flex min-h-[20rem] max-w-full scroll-mt-20 flex-col p-3 md:min-h-[28rem]"
+        >
           <div className="customer-rail-title mb-2 shrink-0 px-1">
             <span>AI 助手</span>
           </div>
           <ContextChat
-            customerId={Number(id)}
+            customerId={internalCustomerId}
             title="问一句"
             description=""
             compact
             embedded
             framed={false}
-            className="min-h-0 w-full flex-1"
+            className="min-h-0 w-full min-w-0 flex-1"
             emptyHint="可先点「上传并解析」补充通话/微信，再问跟进策略、话术或风险点。"
             bannerHint={aiBanner}
             onDismissBanner={() => setAiBanner(null)}

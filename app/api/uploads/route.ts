@@ -7,6 +7,8 @@ import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { previewMediaAnalysis } from "@/lib/analyze";
 import { parsePageParams, resolvePagination } from "@/lib/pagination";
+import { assertSafeUpload } from "@/lib/file-security";
+import { clientIp, enforceRateLimit } from "@/lib/security";
 
 export async function GET(request: NextRequest) {
   try {
@@ -73,7 +75,8 @@ export async function GET(request: NextRequest) {
         LIMIT 1
       ) insight ON TRUE
       ${where}`;
-    const selectSql = `SELECT m.*, c.name AS customer_name, c.company_name AS customer_company_name, u.name AS uploader_name,
+    const selectSql = `SELECT m.*, c.name AS customer_name, c.company_name AS customer_company_name,
+      c.public_id AS customer_public_id, u.name AS uploader_name,
       COALESCE(insight.result_json->'pain_points', '[]'::jsonb) AS pain_points,
       COALESCE(insight.result_json->'competitors', '[]'::jsonb) AS competitors`;
 
@@ -108,6 +111,11 @@ export async function POST(request: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
+    await enforceRateLimit({
+      key: `upload:${user.company_id}:${user.id}:${clientIp(request)}`,
+      limit: 30,
+      windowSeconds: 3600,
+    });
 
     const form = await request.formData();
     const kind = String(form.get("kind") || "call");
@@ -124,6 +132,9 @@ export async function POST(request: NextRequest) {
 
     if (!customerId) return jsonError("请选择客户");
     if (kind !== "call" && kind !== "wechat") return jsonError("类型无效");
+    if (transcript.length > 1_000_000 || textContent.length > 1_000_000) {
+      return jsonError("文本内容不能超过 100 万字符");
+    }
 
     await assertCanAccessCustomer(user, customerId);
 
@@ -143,6 +154,7 @@ export async function POST(request: NextRequest) {
     } else if (file && typeof file !== "string" && "arrayBuffer" in file) {
       const blob = file as File;
       const buf = Buffer.from(await blob.arrayBuffer());
+      assertSafeUpload(blob,buf,{ maxBytes:200*1024*1024, allowedExts:["mp3","wav","m4a","aac","ogg","flac","webm","mp4"] });
       if (buf.length > 200 * 1024 * 1024) {
         return jsonError("单文件不能超过 200MB");
       }
@@ -162,6 +174,14 @@ export async function POST(request: NextRequest) {
     let mediaId: number | null = null;
     try {
       if (!uri) {
+        const quotaBytes = Number(process.env.COMPANY_STORAGE_QUOTA_BYTES || 10 * 1024 ** 3);
+        const usage = await pool.query(
+          `SELECT COALESCE(SUM(size_bytes),0)::bigint AS used FROM media_assets WHERE company_id = $1`,
+          [user.company_id]
+        );
+        if (Number(usage.rows[0]?.used || 0) + pendingBuf!.length > quotaBytes) {
+          return jsonError("公司存储空间已用完", 413);
+        }
         const saved = await saveObject({
           companyId: user.company_id,
           folder: "crm",

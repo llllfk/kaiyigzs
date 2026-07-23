@@ -92,6 +92,20 @@ export async function assertCanAccessCustomer(user: SessionUser, customerId: num
   throw new AuthError("无权访问该客户", 403);
 }
 
+export async function assertCanAccessMedia(user: SessionUser, mediaId: number) {
+  const res = await pool.query(
+    `SELECT id, company_id, uploader_id, customer_id FROM media_assets WHERE id = $1`,
+    [mediaId]
+  );
+  const row = res.rows[0];
+  if (!row) throw new AuthError("上传记录不存在", 404);
+  assertCompanyAccess(user, row.company_id);
+  const owners = await getVisibleOwnerIds(user);
+  if (owners === "all" || owners === "company") return row;
+  if (owners.some((id) => Number(id) === Number(row.uploader_id))) return row;
+  throw new AuthError("无权访问该上传记录", 403);
+}
+
 export function buildOwnerFilter(
   owners: number[] | "all" | "company",
   companyId: number | null,

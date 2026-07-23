@@ -8,6 +8,7 @@
 
 import { randomUUID } from "crypto";
 import pool from "@/lib/db";
+import { decryptCompanyConfig } from "@/lib/config-crypto";
 
 const SUBMIT_URL =
   "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit";
@@ -75,9 +76,8 @@ export async function resolveVolcAsrCredentials(
     const res = await pool.query(`SELECT config FROM companies WHERE id = $1`, [
       companyId,
     ]);
-    const volc = (
-      res.rows[0]?.config as { volc_asr?: Record<string, unknown> } | null
-    )?.volc_asr;
+    const config = decryptCompanyConfig((res.rows[0]?.config || {}) as Record<string, unknown>);
+    const volc = (config as { volc_asr?: Record<string, unknown> }).volc_asr;
     if (volc) {
       const apiKey = String(volc.api_key || "").trim();
       const appId = String(volc.app_id || volc.app_key || "").trim();

@@ -4,6 +4,7 @@
 
 import { maskCozeApiKey } from "@/lib/ai";
 import { normalizeCozeDatasets } from "@/lib/coze-datasets";
+import { decryptCompanyConfig } from "@/lib/config-crypto";
 
 export type CompanyVolcAsrConfig = {
   api_key?: string;
@@ -65,7 +66,7 @@ export function getCompanySynthMinutesQuota(
 }
 
 export function sanitizeCompanyRow(row: Record<string, unknown>) {
-  const config = (row.config || {}) as CompanyConfig;
+  const config = decryptCompanyConfig((row.config || {}) as CompanyConfig & Record<string, unknown>);
   const coze = config.coze || {};
   const apiKey = String(coze.api_key || "");
   const datasets = normalizeCozeDatasets(coze as Record<string, unknown>);

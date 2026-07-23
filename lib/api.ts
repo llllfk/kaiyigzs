@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth";
 import { AiBusyError } from "@/lib/ai";
+import { RateLimitError, requestId } from "@/lib/security";
 
 export function jsonOk<T>(data: T, status = 200, meta?: Record<string, unknown>) {
   return NextResponse.json(meta ? { data, meta } : { data }, { status });
@@ -18,12 +19,16 @@ export function jsonError(
 }
 
 export function handleApiError(err: unknown) {
+  if (err instanceof RateLimitError) {
+    return NextResponse.json({ error: err.message }, { status: 429, headers: { "Retry-After": String(err.retryAfter) } });
+  }
   if (err instanceof AuthError) {
     return jsonError(err.message, err.status);
   }
   if (err instanceof AiBusyError) {
     return jsonError(err.message, err.status);
   }
-  console.error(err);
-  return jsonError(err instanceof Error ? err.message : "服务器错误", 500);
+  const id = requestId();
+  console.error(`[api:${id}]`, err);
+  return NextResponse.json({ error: "服务器内部错误", request_id: id }, { status: 500 });
 }

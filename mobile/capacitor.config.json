@@ -1,0 +1,13 @@
+{
+  "appId": "cn.kaiyi.salescrm",
+  "appName": "凯艺销售CRM",
+  "webDir": "www",
+  "server": {
+    "url": "https://your-crm.example.com",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#f5f7fa"
+  }
+}

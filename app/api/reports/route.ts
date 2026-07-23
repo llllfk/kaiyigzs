@@ -1,12 +1,11 @@
 import { NextRequest } from "next/server";
-import pool from "@/lib/db";
 import { requireSession } from "@/lib/auth";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
-import { crmRole } from "@/lib/permissions";
 import {
-  ensureReportExportsTable,
+  getReportSalesRows,
   getReportSnapshot,
   reportPeriod,
+  reportPeriods,
   resolveReportScope,
 } from "@/lib/reports";
 import {
@@ -14,46 +13,95 @@ import {
   reportAttachmentHeaders,
 } from "@/lib/report-excel";
 
-export async function GET() {
+function normalizePeriod(
+  period: ReturnType<typeof reportPeriod> | ReturnType<typeof reportPeriods>
+) {
+  if ("ranges" in period && Array.isArray(period.ranges)) {
+    return period;
+  }
+  return {
+    ...period,
+    keys: [period.key],
+    ranges: [{ from: period.from, to: period.to }],
+    contiguous: true,
+  };
+}
+
+function resolvePeriodFromSearch(sp: URLSearchParams) {
+  const keysRaw = sp.get("period_keys")?.trim() || "";
+  if (keysRaw) return normalizePeriod(reportPeriods(keysRaw.split(",")));
+  return normalizePeriod(
+    reportPeriod(
+      String(sp.get("period_type") || ""),
+      String(sp.get("period_key") || "")
+    )
+  );
+}
+
+function resolvePeriodFromBody(body: {
+  period_keys?: unknown;
+  period_type?: unknown;
+  period_key?: unknown;
+}) {
+  const raw = body.period_keys;
+  if (Array.isArray(raw)) {
+    return normalizePeriod(reportPeriods(raw.map((k) => String(k))));
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return normalizePeriod(reportPeriods(raw.split(",")));
+  }
+  return normalizePeriod(
+    reportPeriod(
+      String(body.period_type || ""),
+      String(body.period_key || "")
+    )
+  );
+}
+
+/** 成员卡片数据（轻量，不含明细表） */
+export async function GET(req: NextRequest) {
   try {
     const user = await requireSession();
-    await ensureReportExportsTable();
-    const values: unknown[] = [user.company_id];
-    let where = "e.company_id = $1";
-    if (crmRole(user) === "sales") {
-      values.push(user.id);
-      where += ` AND e.created_by = $${values.length}`;
-    }
-    const result = await pool.query(
-      `SELECT e.id, e.period_type, e.period_key, e.scope, e.file_name, e.file_size,
-              e.created_at, e.owner_id,
-              o.name AS owner_name, c.name AS creator_name
-       FROM report_exports e
-       LEFT JOIN users o ON o.id = e.owner_id
-       LEFT JOIN users c ON c.id = e.created_by
-       WHERE ${where}
-       ORDER BY e.created_at DESC
-       LIMIT 100`,
-      values
+    if (!user.company_id) return jsonError("缺少公司信息", 400);
+
+    const sp = req.nextUrl.searchParams;
+    const period = resolvePeriodFromSearch(sp);
+    const rawOwner = sp.get("owner_id");
+    const requested =
+      rawOwner == null || rawOwner === "" || rawOwner === "all"
+        ? null
+        : Number(rawOwner);
+    const scope = await resolveReportScope(user, requested);
+    const rows = await getReportSalesRows(
+      Number(user.company_id),
+      scope.ownerIds,
+      period.ranges
     );
-    return jsonOk(result.rows);
+
+    return jsonOk({
+      rows,
+      periodLabel: period.label,
+      from: period.from,
+      to: period.to,
+      contiguous: period.contiguous,
+      scopeLabel: scope.scopeLabel,
+    });
   } catch (e) {
     return handleApiError(e);
   }
 }
 
-/** 生成 Excel：临时构建后直接下载；仅把生成记录写入数据库，不落盘持久化文件 */
+/** 生成 Excel：临时构建后直接下载，不落盘、不写生成记录 */
 export async function POST(req: NextRequest) {
   try {
     const user = await requireSession();
     if (!user.company_id) return jsonError("缺少公司信息", 400);
-    await ensureReportExportsTable();
 
     const body = await req.json();
-    const period = reportPeriod(
-      String(body.period_type || ""),
-      String(body.period_key || "")
-    );
+    const period = resolvePeriodFromBody(body);
+    if (!period.contiguous) {
+      return jsonError("所选月份必须连续，请选择连续的月份区间后再导出", 400);
+    }
     const requested =
       body.owner_id == null || body.owner_id === ""
         ? null
@@ -61,43 +109,20 @@ export async function POST(req: NextRequest) {
     const scope = await resolveReportScope(user, requested);
     const snapshot = await getReportSnapshot(
       Number(user.company_id),
-      scope.ownerId,
-      period.from,
-      period.to
+      scope.ownerIds,
+      period.ranges
     );
-    const ownerName =
-      scope.ownerId == null
-        ? null
-        : snapshot.people.find(
-            (p: { id: number }) => Number(p.id) === scope.ownerId
-          )?.name || user.name;
     const payload = {
       ...snapshot,
       periodLabel: period.label,
       from: period.from,
       to: period.to,
-      scopeLabel: scope.ownerId == null ? "全公司" : ownerName,
+      contiguous: period.contiguous,
+      scopeLabel: scope.scopeLabel,
     };
 
     const bytes = await buildReportXlsxBytes(payload);
-    const safeScope = scope.ownerId == null ? "全公司" : ownerName;
-    const fileName = `${snapshot.companyName}-${period.label}-${safeScope}-经营报表.xlsx`;
-
-    await pool.query(
-      `INSERT INTO report_exports
-        (company_id, created_by, owner_id, period_type, period_key, scope, file_name, file_path, file_size)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'', $8)`,
-      [
-        user.company_id,
-        user.id,
-        scope.ownerId,
-        period.type,
-        period.key,
-        scope.scope,
-        fileName,
-        bytes.length,
-      ]
-    );
+    const fileName = `${snapshot.companyName}-${period.label}-${scope.scopeLabel}-经营报表.xlsx`;
 
     return new Response(new Uint8Array(bytes), {
       status: 200,

@@ -76,12 +76,12 @@ export async function GET() {
   }
 }
 
-/** 公司端不可自行创建音色；须由平台分配 Speaker ID 后上传训练 */
+/** 公司端不可自行创建音色；须由平台完成音色配置后上传训练 */
 export async function POST(_request: NextRequest) {
   try {
     await requireSession();
     return jsonError(
-      "请等待平台管理员分配 Speaker ID 后再上传样音训练。公司端不可自行创建音色。",
+      "请等待平台管理员完成音色配置后再上传样音训练。公司端不可自行创建音色。",
       403
     );
   } catch (err) {

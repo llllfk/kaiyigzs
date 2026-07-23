@@ -14,14 +14,25 @@ import { IconButton } from "@/components/ui/IconButton";
 import { CardListSkeleton } from "@/components/ui/Skeleton";
 import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { subscribeListFilters, takeListFilters, normalizePath } from "@/lib/nav-filters";
+
+function notifyTasksChanged() {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new Event("crm:tasks-changed"));
+  } catch {
+    /* ignore */
+  }
+}
 import { taskDueUrgency } from "@/lib/utils";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import type { SessionUser } from "@/types";
 import { pageCacheFetchJson, pageCachePeek, pageCachePut } from "@/lib/page-cache";
 import { useSessionUser } from "@/components/shared/SessionUserContext";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 
 export type Task = {
   id: number;
+  public_id?: string;
   title: string;
   status: string;
   source: string;
@@ -30,6 +41,7 @@ export type Task = {
   customer_id?: number | null;
   opportunity_id?: number | null;
   customer_name?: string | null;
+  customer_public_id?: string | null;
   opportunity_title?: string | null;
   owner_name?: string | null;
 };
@@ -86,6 +98,7 @@ export default function TasksClient({
   const canOwnerSearch = canShowOwnerSearch(sessionUser);
   const meId = Number(sessionUser.id);
   const [remindingId, setRemindingId] = useState<number | null>(null);
+  const [remindingAll, setRemindingAll] = useState(false);
   const [status, setStatus] = useState("");
   const [urgency, setUrgency] = useState("");
   const [navReady, setNavReady] = useState(false);
@@ -339,6 +352,7 @@ export default function TasksClient({
         ui.success("待办已更新", title.trim());
         setOpen(false);
         setEditTask(null);
+        notifyTasksChanged();
         await load({ force: true });
       } else {
         const res = await fetch("/api/tasks", {
@@ -358,6 +372,7 @@ export default function TasksClient({
         }
         ui.success("待办已创建", title.trim());
         setOpen(false);
+        notifyTasksChanged();
         await load({ force: true });
       }
     } finally {
@@ -378,12 +393,13 @@ export default function TasksClient({
     if (!res.ok) ui.error("删除失败", json.error);
     else {
       ui.success("待办已删除");
+      notifyTasksChanged();
       await load({ force: true });
     }
   }
 
   async function remindTask(t: Task) {
-    if (remindingId != null) return;
+    if (remindingId != null || remindingAll) return;
     const ok = await ui.confirm({
       title: "确认催办？",
       description: `将通知${t.owner_name ? `「${t.owner_name}」` : "负责人"}尽快处理「${t.title}」。`,
@@ -392,7 +408,7 @@ export default function TasksClient({
     if (!ok) return;
     setRemindingId(t.id);
     try {
-      const res = await fetch(`/api/tasks/${t.id}/remind`, { method: "POST" });
+      const res = await fetch(`/api/tasks/${t.public_id || t.id}/remind`, { method: "POST" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) ui.error("催办失败", json.error || "请稍后重试");
       else ui.success("催办成功", "已通知负责人");
@@ -400,6 +416,72 @@ export default function TasksClient({
       ui.error("催办失败", "网络异常，请稍后重试");
     } finally {
       setRemindingId(null);
+    }
+  }
+
+  async function remindAllUrgent() {
+    if (remindingAll || remindingId != null) return;
+    try {
+      const previewRes = await fetch("/api/tasks/remind");
+      const previewJson = await previewRes.json().catch(() => ({}));
+      if (!previewRes.ok) {
+        ui.error("一键催办失败", previewJson.error || "无法获取催办数量");
+        return;
+      }
+      const overdueTotal = Number(previewJson.data?.overdue_total || 0);
+      const previewTasks = Number(previewJson.data?.task_count || 0);
+      const previewOwners = Number(previewJson.data?.owner_count || 0);
+      const selfCount = Number(previewJson.data?.self_count || 0);
+      if (previewTasks <= 0) {
+        ui.success(
+          "无需催办",
+          selfCount > 0
+            ? `共 ${overdueTotal || selfCount} 条逾期待办，均为你自己的，无法催办`
+            : "暂无逾期待办"
+        );
+        return;
+      }
+
+      const selfHint =
+        selfCount > 0
+          ? `（逾期共 ${overdueTotal || previewTasks + selfCount} 条，已排除你自己的 ${selfCount} 条）`
+          : "";
+      const ok = await ui.confirm({
+        title: "确认一键催办？",
+        description: `将催办 ${previewTasks} 条已逾期待办（涉及 ${previewOwners} 人）${selfHint}。同一人 30 分钟内只催一次。`,
+        confirmText: "一键催办",
+      });
+      if (!ok) return;
+
+      setRemindingAll(true);
+      const res = await fetch("/api/tasks/remind", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        ui.error("一键催办失败", json.error || "请稍后重试");
+        return;
+      }
+      const owners = Number(json.data?.owner_count || 0);
+      const tasks = Number(json.data?.task_count || 0);
+      const skipped = Number(json.data?.skipped || 0);
+      if (owners === 0 && tasks === 0) {
+        ui.success(
+          "无需催办",
+          skipped
+            ? "相关负责人近期已催办过"
+            : json.data?.message || "暂无逾期待办"
+        );
+        return;
+      }
+      ui.success(
+        "一键催办成功",
+        `已通知 ${owners} 人、共 ${tasks} 条待办${
+          skipped ? `（另有 ${skipped} 人近期已催，已跳过）` : ""
+        }`
+      );
+    } catch {
+      ui.error("一键催办失败", "网络异常，请稍后重试");
+    } finally {
+      setRemindingAll(false);
     }
   }
 
@@ -412,86 +494,48 @@ export default function TasksClient({
             紧急程度按截止日期自动区分（已逾期 / 今天截止为紧急 / 其余为普通）；已完成不显示。
           </p>
         </div>
-        <Button onClick={openCreate}>新建待办</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {canOwnerSearch ? (
+            <Button
+              variant="secondary"
+              disabled={remindingAll || remindingId != null}
+              onClick={() => void remindAllUrgent()}
+            >
+              {remindingAll ? "催办中…" : "一键催办"}
+            </Button>
+          ) : null}
+          <Button onClick={openCreate}>新建待办</Button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="w-36 shrink-0">
-          <Select
-            value={status}
-            onChange={onStatusChange}
-            options={[
-              { value: "", label: "全部状态" },
-              { value: "pending", label: "待办" },
-              { value: "done", label: "已完成" },
-            ]}
-          />
-        </div>
-        <div className="w-36 shrink-0">
-          <Select
-            value={urgency}
-            onChange={onUrgencyChange}
-            options={[
-              { value: "", label: "全部紧急" },
-              { value: "overdue", label: "已逾期" },
-              { value: "urgent", label: "紧急" },
-              { value: "normal", label: "普通" },
-            ]}
-          />
-        </div>
-        <div className="relative w-72 max-w-full shrink-0">
-          <input
-            className={`input ${q ? "pr-9" : ""}`}
-            placeholder="客户名 / 客户负责人 / 商机"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-          {q ? (
-            <button
-              type="button"
-              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
-              aria-label="清除搜索"
-              title="清除"
-              onClick={() => {
-                setQ("");
-                if (page === 1) void load({ keyword: "", page: 1, force: true });
-                else setPage(1);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M6 6l12 12M18 6 6 18"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          ) : null}
-        </div>
-        {canOwnerSearch ? (
-          <div className="relative w-44 max-w-full shrink-0">
+      <CollapsibleListFilters
+        activeCount={
+          (status ? 1 : 0) +
+          (urgency ? 1 : 0) +
+          (canOwnerSearch && ownerQ.trim() ? 1 : 0) +
+          (dueFrom ? 1 : 0) +
+          (dueTo ? 1 : 0)
+        }
+        primary={
+          <div className="relative w-full min-w-0 md:w-72 md:max-w-full md:shrink-0">
             <input
-              className={`input ${ownerQ ? "pr-9" : ""}`}
-              placeholder="搜索负责人"
-              value={ownerQ}
-              onChange={(e) => setOwnerQ(e.target.value)}
+              className={`input w-full ${q ? "pr-9" : ""}`}
+              placeholder="客户名 / 客户负责人 / 商机"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") onSearch();
               }}
             />
-            {ownerQ ? (
+            {q ? (
               <button
                 type="button"
                 className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
-                aria-label="清除负责人搜索"
+                aria-label="清除搜索"
                 title="清除"
                 onClick={() => {
-                  setOwnerQ("");
-                  if (page === 1) void load({ ownerKeyword: "", page: 1, force: true });
+                  setQ("");
+                  if (page === 1) void load({ keyword: "", page: 1, force: true });
                   else setPage(1);
                 }}
               >
@@ -506,31 +550,93 @@ export default function TasksClient({
               </button>
             ) : null}
           </div>
-        ) : null}
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={dueFrom}
-            onChange={(v) => {
-              setDueFrom(v);
-              setPage(1);
-            }}
-            placeholder="截止起"
-          />
-        </div>
-        <div className="w-40 shrink-0">
-          <DatePicker
-            value={dueTo}
-            onChange={(v) => {
-              setDueTo(v);
-              setPage(1);
-            }}
-            placeholder="截止止"
-          />
-        </div>
-        <Button variant="secondary" onClick={onSearch}>
-          搜索
-        </Button>
-      </div>
+        }
+        secondary={
+          <>
+            <div className="w-36 shrink-0">
+              <Select
+                value={status}
+                onChange={onStatusChange}
+                options={[
+                  { value: "", label: "全部状态" },
+                  { value: "pending", label: "待办" },
+                  { value: "done", label: "已完成" },
+                ]}
+              />
+            </div>
+            <div className="w-36 shrink-0">
+              <Select
+                value={urgency}
+                onChange={onUrgencyChange}
+                options={[
+                  { value: "", label: "全部紧急" },
+                  { value: "overdue", label: "已逾期" },
+                  { value: "urgent", label: "紧急" },
+                  { value: "normal", label: "普通" },
+                ]}
+              />
+            </div>
+            {canOwnerSearch ? (
+              <div className="relative w-44 max-w-full shrink-0">
+                <input
+                  className={`input ${ownerQ ? "pr-9" : ""}`}
+                  placeholder="搜索负责人"
+                  value={ownerQ}
+                  onChange={(e) => setOwnerQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onSearch();
+                  }}
+                />
+                {ownerQ ? (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
+                    aria-label="清除负责人搜索"
+                    title="清除"
+                    onClick={() => {
+                      setOwnerQ("");
+                      if (page === 1) void load({ ownerKeyword: "", page: 1, force: true });
+                      else setPage(1);
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M6 6l12 12M18 6 6 18"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={dueFrom}
+                onChange={(v) => {
+                  setDueFrom(v);
+                  setPage(1);
+                }}
+                placeholder="截止起"
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker
+                value={dueTo}
+                onChange={(v) => {
+                  setDueTo(v);
+                  setPage(1);
+                }}
+                placeholder="截止止"
+              />
+            </div>
+            <Button variant="secondary" onClick={onSearch}>
+              搜索
+            </Button>
+          </>
+        }
+      />
 
       <Modal
         open={open}
@@ -641,8 +747,7 @@ export default function TasksClient({
               canOwnerSearch &&
               !isMine &&
               t.owner_id != null &&
-              t.status !== "done" &&
-              t.status !== "cancelled";
+              t.status === "pending";
             return (
             <div
               key={t.id}
@@ -651,7 +756,7 @@ export default function TasksClient({
               <div className="flex min-w-0 items-start gap-2">
                 <div className="card-corner-status mt-0.5">
                   <StatusTag kind="task" value={t.status} />
-                  {t.status !== "done" && t.status !== "cancelled" ? (
+                  {t.status === "pending" ? (
                     <StatusTag
                       kind="task_urgency"
                       value={taskDueUrgency(t.due_at, t.status)}
@@ -675,7 +780,7 @@ export default function TasksClient({
                   <button
                     type="button"
                     className="text-link"
-                    onClick={() => router.push(`/customers/${t.customer_id}`)}
+                    onClick={() => router.push(`/customers/${t.customer_public_id || t.customer_id}`)}
                   >
                     {t.customer_name || "客户"}
                   </button>

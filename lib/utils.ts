@@ -71,7 +71,14 @@ export function taskDueUrgency(
   dueAt?: string | Date | null,
   status?: string | null
 ): TaskUrgency {
-  if (status === "done" || status === "cancelled") return "normal";
+  // 已确认 / 已完成 / 已取消：不再按截止日标紧急程度
+  if (
+    status === "done" ||
+    status === "cancelled" ||
+    status === "confirmed"
+  ) {
+    return "normal";
+  }
   if (!dueAt) return "normal";
   const d = typeof dueAt === "string" ? new Date(dueAt) : dueAt;
   if (Number.isNaN(d.getTime())) return "normal";

@@ -26,6 +26,7 @@ type Summary = {
     summary: string;
     customer_name?: string;
     customer_id?: number;
+    customer_public_id?: string;
     created_at: string;
   }[];
   upload_stats: KV[];
@@ -207,7 +208,7 @@ export default function InsightsPage() {
                 <span>{new Date(ins.created_at).toLocaleString("zh-CN")}</span>
                 {ins.customer_id && (
                   <AppLink
-                    href={`/customers/${ins.customer_id}`}
+                    href={`/customers/${ins.customer_public_id || ins.customer_id}`}
                     className="font-medium text-[var(--color-accent)]"
                   >
                     {ins.customer_name || "客户"}

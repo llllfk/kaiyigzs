@@ -10,7 +10,7 @@ import { ListRowsSkeleton } from "@/components/ui/Skeleton";
 import { useAppRouter } from "@/hooks/useAppRouter";
 import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { cn, formatDateTime, formatRelativeTime } from "@/lib/utils";
-import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { pageCacheFetchJson, pageCacheInvalidate, pageCachePeek } from "@/lib/page-cache";
 
 type Notice = {
   id: number;
@@ -23,7 +23,7 @@ type Notice = {
 };
 
 const FILTER_OPTIONS = [
-  { value: "", label: "全部" },
+  { value: "all", label: "全部" },
   { value: "unread", label: "未读" },
 ];
 
@@ -179,7 +179,7 @@ export default function NotificationsPage() {
   const seed = pageCachePeek<{ data?: Notice[]; meta?: PageMeta }>(NOTIFICATIONS_SEED_URL);
   const [list, setList] = useState<Notice[]>(() => seed?.data || []);
   const [loading, setLoading] = useState(() => seed == null);
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useState("unread");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [meta, setMeta] = useState<PageMeta>(seed?.meta || EMPTY_PAGE_META);
@@ -253,8 +253,11 @@ export default function NotificationsPage() {
     else {
       ui.success("已全部标为已读");
       window.dispatchEvent(new Event("crm:notifications-changed"));
+      pageCacheInvalidate("/api/notifications");
       router.refresh();
-      await load({ force: true });
+      setFilter("all");
+      setPage(1);
+      await load({ filter: "all", page: 1, force: true });
     }
   }
 
@@ -271,6 +274,7 @@ export default function NotificationsPage() {
     }
     if (!silent) ui.success("已标为已读");
     window.dispatchEvent(new Event("crm:notifications-changed"));
+    pageCacheInvalidate("/api/notifications");
     router.refresh();
     await load({ force: true });
     return true;

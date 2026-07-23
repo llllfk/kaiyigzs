@@ -65,7 +65,7 @@ export default function CompaniesPage() {
   const [adminName, setAdminName] = useState("");
   const [adminPhone, setAdminPhone] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
-  const [adminPassword, setAdminPassword] = useState("Admin123!");
+  const [adminPassword, setAdminPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const hasRowsRef = useRef((seed?.data?.length || 0) > 0);
   hasRowsRef.current = list.length > 0;
@@ -129,7 +129,7 @@ export default function CompaniesPage() {
     setAdminName("");
     setAdminPhone("");
     setAdminEmail("");
-    setAdminPassword("Admin123!");
+    setAdminPassword("");
     setOpen(true);
   }
 

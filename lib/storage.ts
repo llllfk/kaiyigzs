@@ -26,6 +26,11 @@ export function storageConfigured() {
 }
 
 const LOCAL_ROOT = path.join(process.cwd(), "storage");
+function safeLocalPath(key: string) {
+  const root=path.resolve(LOCAL_ROOT); const full=path.resolve(root,key);
+  if(full!==root && !full.startsWith(root+path.sep)) throw new Error("非法存储路径");
+  return full;
+}
 
 export async function saveObject(params: {
   companyId: number;
@@ -49,7 +54,7 @@ export async function saveObject(params: {
     return { uri: `s3://${BUCKET_NAME}/${key}`, size: params.body.length, key };
   }
 
-  const full = path.join(LOCAL_ROOT, key);
+  const full = safeLocalPath(key);
   await mkdir(path.dirname(full), { recursive: true });
   await writeFile(full, params.body);
   return { uri: `local://${key}`, size: params.body.length, key };
@@ -92,7 +97,7 @@ export async function getPresignedGetUrl(
 export async function readObject(uri: string): Promise<Buffer> {
   if (uri.startsWith("local://")) {
     const key = uri.replace("local://", "");
-    return readFile(path.join(LOCAL_ROOT, key));
+    return readFile(safeLocalPath(key));
   }
   if (uri.startsWith("s3://")) {
     const without = uri.replace("s3://", "");
@@ -115,7 +120,7 @@ export async function deleteObject(uri: string): Promise<void> {
     if (!uri) return;
     if (uri.startsWith("local://")) {
       const key = uri.replace("local://", "");
-      await unlink(path.join(LOCAL_ROOT, key)).catch(() => undefined);
+      await unlink(safeLocalPath(key)).catch(() => undefined);
       return;
     }
     if (uri.startsWith("s3://") && storageConfigured()) {
