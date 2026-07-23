@@ -341,6 +341,23 @@ async function main() {
     );
   }
 
+  // Quotes
+  const quoteSpecs = [
+    [oppIds[0], customerIds[0], manager.id, "星河 CRM 系统报价单 v1", "CNY", 180000, 180000, "draft", 30],
+    [oppIds[2], customerIds[2], sales.id, "云栈销售协作平台报价", "CNY", 260000, 234000, "submitted", 15],
+    [oppIds[4], customerIds[4], admin.id, "海川门店话术知识库方案", "CNY", 120000, 108000, "approved", 60],
+  ];
+  for (const [oppId, customerId, ownerId, title, currency, listTotal, total, status, validDays] of quoteSpecs) {
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + validDays);
+    await pool.query(
+      `INSERT INTO quotes
+        (company_id, opportunity_id, customer_id, owner_id, version, status, title, currency, list_total, total, valid_until, created_by)
+       VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,$9,$10,$11)`,
+      [companyId, oppId, customerId, ownerId, status, title, currency, listTotal, total, validUntil.toISOString().split('T')[0], ownerId]
+    );
+  }
+
   // Competitors
   const competitors = [
     ["纷享销客", "偏中大型销售团队", "品牌认知强", "定制成本高", "强调落地实施与知识库协同"],
