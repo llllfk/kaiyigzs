@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { MessageSquare } from 'lucide-react';
+import Image from 'next/image';
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -64,9 +65,18 @@ export default function Contact() {
               <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.05] text-zinc-400 shrink-0">
                 <MessageSquare size={18} strokeWidth={1.5} />
               </div>
-              <div>
-                <p className="text-sm font-medium text-white mb-1">微信</p>
-                <p className="text-sm text-zinc-400">kaiyigzs</p>
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="text-sm font-medium text-white mb-1">微信</p>
+                  <p className="text-sm text-zinc-400">kaiyigzs</p>
+                </div>
+                <Image
+                  src="/wechat-qr.png"
+                  alt="微信二维码"
+                  width={100}
+                  height={100}
+                  className="rounded-lg border border-white/[0.08]"
+                />
               </div>
             </div>
           </motion.div>
