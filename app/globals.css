@@ -16,18 +16,18 @@
   --radius: 10px;
   --shadow: 0 1px 2px rgba(30, 58, 95, 0.06), 0 8px 24px rgba(30, 58, 95, 0.06);
   --font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
-  /* 手机顶栏占位：至少覆盖常见状态栏高度；有 safe-area 时取更大值 */
-  --app-status-bar-height: 52px;
-  /* App / 刘海屏顶部安全区（电脑端 toast 等会覆盖为较小值） */
-  --app-top-inset: max(
-    env(safe-area-inset-top, 0px),
-    var(--app-status-bar-height)
-  );
+  /*
+   * 顶部安全区：仅用系统 safe-area。
+   * Android 壳已 decorFitsSystemWindows=true，内容本身在状态栏下，
+   * 再强制 min(52px) 会叠出一大块空白。
+   */
+  --app-status-bar-height: 0px;
+  --app-top-inset: env(safe-area-inset-top, 0px);
 }
 
-/* Toast：手机避开状态栏并再下移；桌面略下移 */
+/* Toast：避开顶栏；电脑端略下移 */
 .app-toast-viewport {
-  top: calc(var(--app-top-inset) + 3.25rem);
+  top: calc(var(--app-top-inset) + 3.5rem);
 }
 @media (min-width: 768px) {
   .app-toast-viewport {

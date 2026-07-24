@@ -681,7 +681,7 @@ function AppShellFrame({
             acting ? "top-10" : "top-0"
           )}
         >
-          {/* 手机端顶栏上方占位：高度覆盖系统状态栏，把通知/账号 header 往下挤；电脑端不显示 */}
+          {/* 仅在有 safe-area（刘海/全面屏沉浸）时占位；普通 App 壳已避开状态栏则为 0 */}
           <div
             aria-hidden
             className="bg-white md:hidden"
