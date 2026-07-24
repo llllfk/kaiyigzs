@@ -8,10 +8,10 @@ import Image from 'next/image';
 export default function Contact() {
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
+    contact: '',
     message: '',
   });
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -19,12 +19,40 @@ export default function Contact() {
     setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(true);
-    setFormData({ name: '', email: '', message: '' });
-    setTimeout(() => setSubmitted(false), 3000);
+    setStatus('submitting');
+
+    try {
+      const res = await fetch('/api/contact/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json.error || '提交失败');
+      }
+
+      setStatus('success');
+      setFormData({ name: '', contact: '', message: '' });
+      setTimeout(() => setStatus('idle'), 3000);
+    } catch {
+      setStatus('error');
+      setTimeout(() => setStatus('idle'), 3000);
+    }
   };
+
+  const submitText =
+    status === 'submitting'
+      ? '提交中...'
+      : status === 'success'
+        ? '已提交，感谢您的留言！'
+        : status === 'error'
+          ? '提交失败，请重试'
+          : '提交';
 
   return (
     <section id="contact" className="relative py-32 px-6">
@@ -98,18 +126,20 @@ export default function Contact() {
                 onChange={handleChange}
                 placeholder="您的姓名"
                 required
-                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors"
+                disabled={status === 'submitting'}
+                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors disabled:opacity-50"
               />
             </div>
             <div>
               <input
-                type="email"
-                name="email"
-                value={formData.email}
+                type="text"
+                name="contact"
+                value={formData.contact}
                 onChange={handleChange}
-                placeholder="您的邮箱"
+                placeholder="您的联系方式"
                 required
-                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors"
+                disabled={status === 'submitting'}
+                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors disabled:opacity-50"
               />
             </div>
             <div>
@@ -120,14 +150,22 @@ export default function Contact() {
                 placeholder="请描述您的需求..."
                 rows={4}
                 required
-                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors resize-none"
+                disabled={status === 'submitting'}
+                className="w-full rounded-lg border border-white/[0.08] bg-[#111] px-4 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-white/[0.2] transition-colors resize-none disabled:opacity-50"
               />
             </div>
             <button
               type="submit"
-              className="w-full rounded-lg bg-white py-3 text-sm font-medium text-black hover:bg-zinc-200 transition-colors duration-200"
+              disabled={status === 'submitting'}
+              className={`w-full rounded-lg py-3 text-sm font-medium transition-colors duration-200 ${
+                status === 'success'
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : status === 'error'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : 'bg-white text-black hover:bg-zinc-200'
+              } disabled:opacity-70`}
             >
-              {submitted ? '已提交，感谢您的留言！' : '提交'}
+              {submitText}
             </button>
           </motion.form>
         </div>
