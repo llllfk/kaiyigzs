@@ -56,7 +56,7 @@ export default function Products() {
               我们的产品
             </h2>
             <p className="mt-4 text-zinc-400 max-w-lg mx-auto">
-              覆盖外贸、家装、教育、出行、零售等多个垂直领域的数字化解决方案
+              覆盖贸易、家装、教育、出行、零售等多个垂直领域的数字化解决方案
             </p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -91,7 +91,7 @@ export default function Products() {
             我们的产品
           </h2>
           <p className="mt-4 text-zinc-400 max-w-lg mx-auto">
-            覆盖外贸、家装、教育、出行、零售等多个垂直领域的数字化解决方案
+            覆盖贸易、家装、教育、出行、零售等多个垂直领域的数字化解决方案
           </p>
         </motion.div>
 

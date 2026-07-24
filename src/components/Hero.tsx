@@ -59,7 +59,7 @@ export default function Hero() {
           transition={{ duration: 0.7, delay: 0.15, ease: 'easeOut' }}
           className="mt-6 text-lg leading-relaxed text-zinc-400 max-w-2xl mx-auto"
         >
-          凯艺软件开发工作室 — 专注为中小企业打造高效、智能的数字化管理系统
+          凯艺软件开发工作室 — 专注为企业打造高效、智能的数字化管理系统
         </motion.p>
 
         <motion.div

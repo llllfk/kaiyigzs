@@ -7,6 +7,7 @@ export interface Product {
   url: string | null;
   description: string;
   icon: string | null;
+  sort_order: number;
 }
 
 export async function GET() {
@@ -14,8 +15,8 @@ export async function GET() {
 
   const { data, error } = await client
     .from('products')
-    .select('id, name, url, description, icon')
-    .order('created_at', { ascending: true });
+    .select('id, name, url, description, icon, sort_order')
+    .order('sort_order', { ascending: true });
 
   if (error) {
     return NextResponse.json(
