@@ -95,14 +95,26 @@ export function navFor(user: SessionUser): NavEntry[] {
   return entries;
 }
 
-/** 简洁底栏固定入口（不含「功能」页里的项） */
-export const COMPACT_BOTTOM_HREFS = new Set([
-  "/dashboard",
-  "/customers",
-  "/apps",
-  "/tasks",
-  "/knowledge",
-]);
+/** 简洁底栏固定入口（按角色；不含「功能」页里的项） */
+export function compactBottomItems(user: SessionUser): NavLeaf[] {
+  const acting = Boolean(user.act_as_company_id);
+  if (user.role === "super_admin" && !acting) {
+    return [
+      { href: "/platform", label: "平台" },
+      { href: "/companies", label: "公司" },
+      { href: "/apps", label: "功能" },
+      { href: "/audit", label: "审计" },
+      { href: "/settings", label: "设置" },
+    ];
+  }
+  return [
+    { href: "/dashboard", label: "工作台" },
+    { href: "/customers", label: "客户" },
+    { href: "/apps", label: "功能" },
+    { href: "/tasks", label: "待办" },
+    { href: "/knowledge", label: "知识库" },
+  ];
+}
 
 export function flattenNavLeaves(entries: NavEntry[]): NavLeaf[] {
   const out: NavLeaf[] = [];
@@ -127,7 +139,6 @@ export function flattenNavLeaves(entries: NavEntry[]): NavLeaf[] {
 
 /** 简洁模式下「功能」页展示的入口（侧栏有、底栏没有） */
 export function compactExtraNavLinks(user: SessionUser): NavLeaf[] {
-  return flattenNavLeaves(navFor(user)).filter(
-    (l) => !COMPACT_BOTTOM_HREFS.has(l.href)
-  );
+  const bottomHrefs = new Set(compactBottomItems(user).map((i) => i.href));
+  return flattenNavLeaves(navFor(user)).filter((l) => !bottomHrefs.has(l.href));
 }

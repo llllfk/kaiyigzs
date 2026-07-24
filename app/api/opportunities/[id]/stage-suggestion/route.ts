@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, AuthError } from "@/lib/auth";
-import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
+import { assertCompanyAccess, getVisibleOwnerIds, ownsVisible } from "@/lib/permissions";
 import { writeAuditLog, createNotification } from "@/lib/audit";
+import { stageAuditLabel } from "@/lib/audit-labels";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { resolvePublicRecordId } from "@/lib/public-id";
 import { recordOpportunityStageChange } from "@/lib/opportunity-stage-history";
@@ -20,7 +21,7 @@ async function assertOppAccess(user: Awaited<ReturnType<typeof requireSession>>,
 }) {
   assertCompanyAccess(user, opp.company_id);
   const owners = await getVisibleOwnerIds(user);
-  if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+  if (!ownsVisible(owners, opp.owner_id)) {
     throw new AuthError("无权操作该商机", 403);
   }
 }
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
       action: "opportunity.stage_accept",
       targetType: "opportunity",
       targetId: id,
-      summary: `采纳阶段建议 ${opp.stage} → ${suggestedStage}`,
+      summary: `采纳阶段建议 ${stageAuditLabel(opp.stage)} → ${stageAuditLabel(suggestedStage)}`,
     });
 
     if (suggestedStage === "won" || suggestedStage === "lost") {

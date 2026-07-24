@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, AuthError } from "@/lib/auth";
-import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
+import { assertCompanyAccess, getVisibleOwnerIds, ownsVisible } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
+import { stageAuditLabel } from "@/lib/audit-labels";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import {
   recordOpportunityStageChange,
@@ -38,7 +39,7 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     assertCompanyAccess(user, opp.company_id);
 
     const owners = await getVisibleOwnerIds(user);
-    if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+    if (!ownsVisible(owners, opp.owner_id)) {
       throw new AuthError("无权查看该商机", 403);
     }
 
@@ -68,7 +69,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
     assertCompanyAccess(user, opp.company_id);
 
     const owners = await getVisibleOwnerIds(user);
-    if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+    if (!ownsVisible(owners, opp.owner_id)) {
       throw new AuthError("无权修改该商机", 403);
     }
 
@@ -114,7 +115,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
           action: "opportunity.stage_change",
           targetType: "opportunity",
           targetId: id,
-          summary: `阶段 ${opp.stage} → ${body.stage}`,
+          summary: `阶段 ${stageAuditLabel(opp.stage)} → ${stageAuditLabel(body.stage)}`,
         });
       }
 
@@ -166,7 +167,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
         action: "opportunity.stage_change",
         targetType: "opportunity",
         targetId: id,
-        summary: `阶段 ${opp.stage} → ${body.stage}`,
+        summary: `阶段 ${stageAuditLabel(opp.stage)} → ${stageAuditLabel(body.stage)}`,
       });
     }
 
@@ -187,7 +188,7 @@ export async function DELETE(_request: NextRequest, { params }: Ctx) {
     assertCompanyAccess(user, opp.company_id);
 
     const owners = await getVisibleOwnerIds(user);
-    if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+    if (!ownsVisible(owners, opp.owner_id)) {
       throw new AuthError("无权删除该商机", 403);
     }
 

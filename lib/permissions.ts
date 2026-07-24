@@ -58,12 +58,32 @@ export async function getVisibleOwnerIds(user: SessionUser): Promise<number[] | 
     `SELECT id FROM users WHERE manager_id = $1 AND company_id = $2 AND status = 'active'`,
     [user.id, user.company_id]
   );
-  return [user.id, ...res.rows.map((r: { id: number }) => r.id)];
+  return [user.id, ...res.rows.map((r: { id: number | string }) => Number(r.id))];
+}
+
+/** 兼容 pg BIGINT 常以 string 返回，避免 `"1" !== 1` 误判 */
+export function sameId(
+  a: number | string | null | undefined,
+  b: number | string | null | undefined
+) {
+  if (a == null || b == null || a === "" || b === "") return false;
+  return Number(a) === Number(b);
 }
 
 function sameCompanyId(a: number | string | null | undefined, b: number | string | null | undefined) {
-  if (a == null || b == null) return false;
-  return Number(a) === Number(b);
+  return sameId(a, b);
+}
+
+/** 当前用户可见负责人是否包含该 owner（"all"/"company" 视为全部可见） */
+export function ownsVisible(
+  owners: number[] | "all" | "company",
+  ownerId: number | string | null | undefined
+) {
+  if (owners === "all" || owners === "company") return true;
+  if (ownerId == null || ownerId === "") return false;
+  const n = Number(ownerId);
+  if (!Number.isFinite(n)) return false;
+  return owners.some((id) => Number(id) === n);
 }
 
 export function assertCompanyAccess(user: SessionUser, companyId: number | null) {
@@ -88,7 +108,7 @@ export async function assertCanAccessCustomer(user: SessionUser, customerId: num
   const owners = await getVisibleOwnerIds(user);
   if (owners === "all" || owners === "company") return row;
   const ownerId = row.owner_id == null ? null : Number(row.owner_id);
-  if (ownerId != null && owners.some((id) => Number(id) === ownerId)) return row;
+  if (ownerId != null && ownsVisible(owners, ownerId)) return row;
   throw new AuthError("无权访问该客户", 403);
 }
 
@@ -102,7 +122,7 @@ export async function assertCanAccessMedia(user: SessionUser, mediaId: number) {
   assertCompanyAccess(user, row.company_id);
   const owners = await getVisibleOwnerIds(user);
   if (owners === "all" || owners === "company") return row;
-  if (owners.some((id) => Number(id) === Number(row.uploader_id))) return row;
+  if (ownsVisible(owners, row.uploader_id)) return row;
   throw new AuthError("无权访问该上传记录", 403);
 }
 

@@ -32,6 +32,9 @@ import {
 } from "@/lib/utils";
 import { probeAudioDurationMs } from "@/lib/audio-duration";
 import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { useSessionUser } from "@/components/shared/SessionUserContext";
+import { effectiveCrmRole } from "@/lib/role-access";
+import { useAppRouter } from "@/hooks/useAppRouter";
 import dynamic from "next/dynamic";
 
 const ContextChat = dynamic(
@@ -58,6 +61,11 @@ type NextStepItem = {
 
 export default function CustomerDetailPage() {
   const ui = useUi();
+  const router = useAppRouter();
+  const user = useSessionUser();
+  const role = effectiveCrmRole(user);
+  const canDeleteCustomer =
+    role === "company_admin" || role === "sales_manager";
   const params = useParams<{ id: string }>();
   const id = params.id;
   const detailSeed = pageCachePeek<{ data?: unknown }>(`/api/customers/${id}`);
@@ -82,6 +90,9 @@ export default function CustomerDetailPage() {
   const [oppDate, setOppDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [compView, setCompView] = useState<{
     name: string;
     id?: number;
@@ -636,6 +647,39 @@ export default function CustomerDetailPage() {
     setEditOpen(true);
   }
 
+  function openDelete() {
+    setDeletePassword("");
+    setDeleteOpen(true);
+  }
+
+  async function confirmDeleteCustomer(e: React.FormEvent) {
+    e.preventDefault();
+    if (!deletePassword) {
+      ui.error("请输入登录密码");
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/customers/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        ui.error("删除失败", json.error || "请稍后重试");
+        return;
+      }
+      setDeleteOpen(false);
+      setDeletePassword("");
+      ui.success("客户已删除");
+      router.replace("/customers");
+      router.refresh();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function saveCustomer(e: React.FormEvent) {
     e.preventDefault();
     if (!editForm.company_name.trim()) {
@@ -1050,6 +1094,11 @@ export default function CustomerDetailPage() {
                 }}
               >
                 领取到私海
+              </Button>
+            )}
+            {canDeleteCustomer && (
+              <Button variant="danger" onClick={openDelete}>
+                删除客户
               </Button>
             )}
             <Button
@@ -2045,6 +2094,66 @@ export default function CustomerDetailPage() {
               onChange={(e) => setFollowContent(e.target.value)}
               required
             />
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={deleteOpen}
+        title="删除客户"
+        description="此操作不可恢复，请确认后输入登录密码"
+        onClose={() => {
+          if (deleting) return;
+          setDeleteOpen(false);
+          setDeletePassword("");
+        }}
+        size="md"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={deleting}
+              onClick={() => {
+                setDeleteOpen(false);
+                setDeletePassword("");
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              type="submit"
+              form="customer-delete-form"
+              variant="danger"
+              disabled={deleting || !deletePassword}
+            >
+              {deleting ? "删除中…" : "确认删除"}
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="customer-delete-form"
+          className="space-y-4"
+          onSubmit={(e) => void confirmDeleteCustomer(e)}
+        >
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800">
+            将永久删除「{data?.company_name || data?.name || "该客户"}」，并连带清除联系人、商机、报价、跟进、待办、解析记录等相关数据，且不可恢复。
+          </div>
+          <div className="field">
+            <label>登录密码</label>
+            <input
+              className="input"
+              type="password"
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="输入当前账号密码以确认"
+              required
+            />
+            <p className="mt-1.5 text-xs text-[var(--color-muted)]">
+              多次密码错误将暂时锁定删除操作，请勿试探密码。
+            </p>
           </div>
         </form>
       </Modal>

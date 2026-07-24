@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireSession, AuthError } from "@/lib/auth";
-import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
+import { assertCompanyAccess, getVisibleOwnerIds, ownsVisible } from "@/lib/permissions";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { resolvePublicRecordId } from "@/lib/public-id";
 import pool from "@/lib/db";
@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, { params }: Ctx) {
     assertCompanyAccess(user, opp.company_id);
 
     const owners = await getVisibleOwnerIds(user);
-    if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+    if (!ownsVisible(owners, opp.owner_id)) {
       throw new AuthError("无权查看该商机", 403);
     }
 

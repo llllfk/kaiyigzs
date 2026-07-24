@@ -13,10 +13,13 @@ import {
   AUDIT_CATEGORY_OPTIONS,
   auditActionLabel,
   auditCategoryLabel,
+  auditTargetTypeLabel,
   lastNDaysRange,
+  localizeStageCodesInText,
   readableAuditSummary,
 } from "@/lib/audit-labels";
 import { TruncateWithDelayTip } from "@/components/ui/DelayedTooltip";
+import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
 import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
 
 type Log = {
@@ -325,72 +328,99 @@ export default function AuditPage() {
         <ViewModeToggle value={viewMode} onChange={changeViewMode} />
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        {platformWide && (
-          <div className="field w-44 min-w-[10rem]">
-            <label>公司</label>
-            <Select
-              value={companyId}
-              onChange={(v) => {
-                setCompanyId(v);
-                setActorId("");
+      <CollapsibleListFilters
+        activeCount={
+          (companyId ? 1 : 0) +
+          (actorId ? 1 : 0) +
+          (category ? 1 : 0) +
+          (from !== range0.from || to !== range0.to ? 1 : 0)
+        }
+        primary={
+          <div className="relative w-full min-w-0 md:w-72 md:max-w-full md:shrink-0">
+            <input
+              className={`input w-full ${q ? "pr-9" : ""}`}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={
+                platformWide ? "动作 / 摘要 / 人员 / 公司" : "动作 / 摘要 / 人员"
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch();
               }}
-              options={companyOptions}
-              searchable
-              placement="auto"
             />
+            {q ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-text)]"
+                aria-label="清除搜索"
+                title="清除"
+                onClick={() => {
+                  setQ("");
+                  if (page === 1) {
+                    void load({ q: "", page: 1, force: true });
+                  } else setPage(1);
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M6 6l12 12M18 6 6 18"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            ) : null}
           </div>
-        )}
-        <div className="field w-40 min-w-[9rem]">
-          <label>人员</label>
-          <Select
-            value={actorId}
-            onChange={setActorId}
-            options={actorOptions}
-            searchable
-            placement="auto"
-          />
-        </div>
-        <div className="field w-40 min-w-[9rem]">
-          <label>类别</label>
-          <Select
-            value={category}
-            onChange={setCategory}
-            options={[...AUDIT_CATEGORY_OPTIONS]}
-            placement="auto"
-          />
-        </div>
-        <div className="field w-40 min-w-[9rem]">
-          <label>开始日期</label>
-          <DatePicker value={from} onChange={setFrom} placeholder="开始" />
-        </div>
-        <div className="field w-40 min-w-[9rem]">
-          <label>结束日期</label>
-          <DatePicker value={to} onChange={setTo} placeholder="结束" />
-        </div>
-        <div className="field w-52 min-w-[12rem] flex-1">
-          <label>关键词</label>
-          <input
-            className="input"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={
-              platformWide ? "动作 / 摘要 / 人员 / 公司" : "动作 / 摘要 / 人员"
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSearch();
-            }}
-          />
-        </div>
-        <div className="flex flex-wrap gap-2 pb-0.5">
-          <Button variant="secondary" onClick={onSearch}>
-            查询
-          </Button>
-          <Button variant="secondary" onClick={resetFilters}>
-            重置
-          </Button>
-        </div>
-      </div>
+        }
+        secondary={
+          <>
+            {platformWide && (
+              <div className="w-44 max-w-full shrink-0">
+                <Select
+                  value={companyId}
+                  onChange={(v) => {
+                    setCompanyId(v);
+                    setActorId("");
+                  }}
+                  options={companyOptions}
+                  searchable
+                  placement="auto"
+                />
+              </div>
+            )}
+            <div className="w-40 max-w-full shrink-0">
+              <Select
+                value={actorId}
+                onChange={setActorId}
+                options={actorOptions}
+                searchable
+                placement="auto"
+              />
+            </div>
+            <div className="w-40 max-w-full shrink-0">
+              <Select
+                value={category}
+                onChange={setCategory}
+                options={[...AUDIT_CATEGORY_OPTIONS]}
+                placement="auto"
+              />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker value={from} onChange={setFrom} placeholder="开始日期" />
+            </div>
+            <div className="w-40 shrink-0">
+              <DatePicker value={to} onChange={setTo} placeholder="结束日期" />
+            </div>
+            <Button variant="secondary" onClick={onSearch}>
+              查询
+            </Button>
+            <Button variant="secondary" onClick={resetFilters}>
+              重置
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -476,9 +506,7 @@ export default function AuditPage() {
                   </td>
                   {platformWide && (
                     <td className="whitespace-nowrap px-4 py-3 text-[var(--color-muted)]">
-                      {l.target_type
-                        ? `${l.target_type}${l.target_id != null ? `#${l.target_id}` : ""}`
-                        : "—"}
+                      {auditTargetTypeLabel(l.target_type)}
                     </td>
                   )}
                 </tr>
@@ -517,13 +545,12 @@ export default function AuditPage() {
               </div>
               {l.summary && (
                 <div className="line-clamp-3 break-words text-[var(--color-muted)]">
-                  {l.summary}
+                  {localizeStageCodesInText(l.summary)}
                 </div>
               )}
               {platformWide && l.target_type && (
                 <div className="text-xs text-[var(--color-muted)]">
-                  对象：{l.target_type}
-                  {l.target_id != null ? `#${l.target_id}` : ""}
+                  对象：{auditTargetTypeLabel(l.target_type)}
                 </div>
               )}
             </button>
@@ -582,16 +609,14 @@ export default function AuditPage() {
               </DetailField>
               {platformWide ? (
                 <DetailField label="对象">
-                  {detail.target_type
-                    ? `${detail.target_type}${
-                        detail.target_id != null ? `#${detail.target_id}` : ""
-                      }`
-                    : "—"}
+                  {auditTargetTypeLabel(detail.target_type)}
                 </DetailField>
               ) : null}
             </div>
             <DetailField label="摘要">
-              {detail.summary?.trim() || "—"}
+              {detail.summary?.trim()
+                ? localizeStageCodesInText(detail.summary.trim())
+                : "—"}
             </DetailField>
           </div>
         ) : null}

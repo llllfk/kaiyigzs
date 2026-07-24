@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
 type TipPos = { left: number; top: number; transform: string };
 
 export type TooltipPlacement = "up" | "down" | "left" | "right";
+
+/** 触屏 / 无悬停设备：无法依赖 mouseleave，需自动收起 */
+function isTouchLikeUi() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(hover: none)").matches;
+}
 
 function placeTip(
   rect: DOMRect,
@@ -44,7 +58,7 @@ function placeTip(
   }
 }
 
-/** 悬停 / 聚焦 delayMs 后显示 tip；placement 默认向上 */
+/** 悬停 / 聚焦 delayMs 后显示 tip；placement 默认向上。触屏约 1.8s 后自动消失。 */
 export function useDelayedTooltip(
   text: string,
   delayMs = 400,
@@ -56,15 +70,15 @@ export function useDelayedTooltip(
   const alwaysShow = options?.alwaysShow ?? false;
   const placement = options?.placement ?? "up";
 
-  function clearTip() {
+  const clearTip = useCallback(() => {
     if (timerRef.current != null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     setPos(null);
-  }
+  }, []);
 
-  function scheduleTip() {
+  const scheduleTip = useCallback(() => {
     clearTip();
     const el = ref.current;
     if (!el || !text) return;
@@ -77,11 +91,49 @@ export function useDelayedTooltip(
     }
     const rect = el.getBoundingClientRect();
     timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
       setPos(placeTip(rect, placement));
     }, delayMs);
-  }
+  }, [alwaysShow, clearTip, delayMs, placement, text]);
 
-  useEffect(() => () => clearTip(), []);
+  useEffect(() => () => clearTip(), [clearTip]);
+
+  // 显示中：触屏定时收起；滚动 / 点到外部立即收起
+  useEffect(() => {
+    if (!pos) return;
+
+    const touchLike = isTouchLikeUi();
+    let autoHide: number | null = null;
+    if (touchLike) {
+      autoHide = window.setTimeout(() => clearTip(), 1800);
+    }
+
+    function onScrollOrMove() {
+      clearTip();
+    }
+
+    function onOutsidePointer(e: Event) {
+      const el = ref.current;
+      if (el && e.target instanceof Node && el.contains(e.target)) return;
+      clearTip();
+    }
+
+    window.addEventListener("scroll", onScrollOrMove, true);
+    window.addEventListener("touchmove", onScrollOrMove, { passive: true });
+
+    // 延后绑定，避免打开 tip 的同一次点击立刻清掉
+    const bindId = window.setTimeout(() => {
+      document.addEventListener("pointerdown", onOutsidePointer, true);
+    }, 50);
+
+    return () => {
+      if (autoHide != null) window.clearTimeout(autoHide);
+      window.clearTimeout(bindId);
+      window.removeEventListener("scroll", onScrollOrMove, true);
+      window.removeEventListener("touchmove", onScrollOrMove);
+      document.removeEventListener("pointerdown", onOutsidePointer, true);
+    };
+  }, [pos, clearTip]);
 
   const tip =
     pos && typeof document !== "undefined"

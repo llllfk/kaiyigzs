@@ -2,7 +2,7 @@ import pool from "@/lib/db";
 import { AuthError } from "@/lib/auth";
 import type { SessionUser, UserRole } from "@/types";
 import { writeAuditLog, createNotification } from "@/lib/audit";
-import { canManagePoolRules, crmRole } from "@/lib/permissions";
+import { canManagePoolRules, crmRole, sameId } from "@/lib/permissions";
 
 export { canManagePoolRules };
 
@@ -139,7 +139,7 @@ export async function releaseCustomerToPool(params: {
   ]);
   const customer = res.rows[0];
   if (!customer) throw new AuthError("客户不存在", 404);
-  if (customer.company_id !== user.company_id) {
+  if (!sameId(customer.company_id, user.company_id)) {
     throw new AuthError("无权操作", 403);
   }
   if (customer.pool_status === "public") {
@@ -147,7 +147,7 @@ export async function releaseCustomerToPool(params: {
   }
 
   const canRelease =
-    canAssignPool(user) || customer.owner_id === user.id;
+    canAssignPool(user) || sameId(customer.owner_id, user.id);
   if (!canRelease) throw new AuthError("无权放入公海", 403);
 
   const updated = await pool.query(
@@ -185,7 +185,7 @@ export async function claimCustomerFromPool(params: {
   ]);
   const customer = res.rows[0];
   if (!customer) throw new AuthError("客户不存在", 404);
-  if (customer.company_id !== user.company_id) {
+  if (!sameId(customer.company_id, user.company_id)) {
     throw new AuthError("无权操作", 403);
   }
   if (customer.pool_status !== "public") {

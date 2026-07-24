@@ -13,6 +13,7 @@ import { EMPTY_PAGE_META, type PageMeta } from "@/lib/pagination";
 import { FileDropzone } from "@/components/ui/FileDropzone";
 import { KnowledgeSkeleton } from "@/components/ui/Skeleton";
 import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
+import { isNativeApp, openInSystemBrowser } from "@/lib/native-open";
 import { useSessionUser } from "@/components/shared/SessionUserContext";
 import {
   AiThinkingIndicator,
@@ -453,8 +454,27 @@ export default function KnowledgePage() {
       );
       return;
     }
+    const fileKey = file.public_id || file.id;
     try {
-      const res = await fetch(`/api/knowledge/files/${file.public_id || file.id}/download`);
+      // App WebView 内 blob 下载常无效：签发短时链接，用系统浏览器下载
+      if (isNativeApp()) {
+        const linkRes = await fetch(
+          `/api/knowledge/files/${fileKey}/download-link`,
+          { method: "POST" }
+        );
+        const linkJson = await linkRes.json().catch(() => ({}));
+        if (!linkRes.ok || !linkJson.data?.url) {
+          ui.error("下载失败", linkJson.error || "请稍后重试");
+          return;
+        }
+        const opened = await openInSystemBrowser(String(linkJson.data.url));
+        if (!opened) {
+          ui.error("下载失败", "无法打开系统浏览器，请稍后重试");
+        }
+        return;
+      }
+
+      const res = await fetch(`/api/knowledge/files/${fileKey}/download`);
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         ui.error("下载失败", json.error || "请稍后重试");

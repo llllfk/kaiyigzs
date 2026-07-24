@@ -41,7 +41,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   login: "登录",
   logout: "退出",
   "user.create": "创建用户",
+  "user.update": "更新用户",
   "user.update_phone": "更新手机号",
+  "user.update_profile": "更新个人资料",
   "customer.create": "创建客户",
   "customer.update": "修改客户",
   "customer.delete": "删除客户",
@@ -62,6 +64,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "quote.revise": "修订报价",
   "quote.withdraw": "撤回报价",
   "quote.rule.update": "更新报价规则",
+  "quote.share.create": "生成报价确认链接",
+  "quote.share.revoke": "撤销报价确认链接",
   "task.delete": "删除待办",
   "task.remind": "催办待办",
   "task.remind_bulk": "一键催办",
@@ -85,6 +89,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "media.upload": "上传媒体记录",
   "media.upload_analyze_failed": "上传解析失败",
   "media.confirm_analysis": "确认保存解析",
+  "media.reanalyze": "重新解析媒体",
+  "media.update": "更新解析记录",
   "media.rename": "重命名媒体文件",
   "media.delete": "删除解析记录",
   "company.create": "创建公司",
@@ -106,10 +112,55 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "competitor.create": "添加竞品",
   "competitor.update": "更新竞品",
   "competitor.delete": "删除竞品",
+  "seed.demo": "导入演示数据",
 };
 
 export function auditActionLabel(action: string): string {
   return AUDIT_ACTION_LABELS[action] || action;
+}
+
+/** 审计对象类型（不展示内部 id） */
+export const AUDIT_TARGET_TYPE_LABELS: Record<string, string> = {
+  company: "公司",
+  user: "用户",
+  customer: "客户",
+  opportunity: "商机",
+  opportunity_review: "商机复盘",
+  quote: "报价",
+  task: "待办",
+  competitor: "竞品",
+  kb_file: "知识库文件",
+  kb_folder: "知识库目录",
+  media_asset: "解析记录",
+  voice_speaker: "复刻音色",
+  official_voice: "官方音色",
+  platform_env: "平台配置",
+};
+
+export function auditTargetTypeLabel(targetType: string | null | undefined): string {
+  if (!targetType) return "—";
+  return AUDIT_TARGET_TYPE_LABELS[targetType] || targetType;
+}
+
+const STAGE_CODE_LABELS: Record<string, string> = {
+  lead: "新线索",
+  contact: "沟通中",
+  proposal: "报价中",
+  won: "成交",
+  lost: "流失",
+};
+
+/** 将摘要中的商机阶段英文码换成中文（兼容历史日志） */
+export function localizeStageCodesInText(text: string): string {
+  return text.replace(
+    /\b(lead|contact|proposal|won|lost)\b/g,
+    (code) => STAGE_CODE_LABELS[code] || code
+  );
+}
+
+export function stageAuditLabel(stage: string | null | undefined): string {
+  if (!stage) return "—";
+  return STAGE_CODE_LABELS[stage] || stage;
 }
 
 /** Strip redundant verbs / IDs so table summary is scannable */
@@ -160,6 +211,8 @@ export function readableAuditSummary(
   for (const re of SUMMARY_STRIP) {
     s = s.replace(re, "");
   }
+
+  s = localizeStageCodesInText(s);
 
   // Drop internal IDs in parentheses: （库 xxx / yyy）
   s = s.replace(/（库\s*[^）]+）/gu, "");

@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
 import { requireSession, AuthError } from "@/lib/auth";
-import { assertCompanyAccess, getVisibleOwnerIds } from "@/lib/permissions";
+import { assertCompanyAccess, getVisibleOwnerIds, ownsVisible } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
+import { stageAuditLabel } from "@/lib/audit-labels";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
 import { recordOpportunityStageChange } from "@/lib/opportunity-stage-history";
 
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
     assertCompanyAccess(user, opp.company_id);
 
     const owners = await getVisibleOwnerIds(user);
-    if (Array.isArray(owners) && !owners.includes(opp.owner_id)) {
+    if (!ownsVisible(owners, opp.owner_id)) {
       throw new AuthError("无权复盘该商机", 403);
     }
 
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest) {
         action: "opportunity.stage_change",
         targetType: "opportunity",
         targetId: opportunityId,
-        summary: `复盘同步阶段 ${opp.stage} → ${outcome}`,
+        summary: `复盘同步阶段 ${stageAuditLabel(opp.stage)} → ${stageAuditLabel(outcome)}`,
       });
     }
 

@@ -7,8 +7,8 @@ import type { SessionUser, UserRole } from "@/types";
 
 const DEV_COOKIE = "crm_session";
 const PROD_COOKIE = "__Host-crm_session";
-const IDLE_HOURS = 8;
-const ABSOLUTE_DAYS = 7;
+const IDLE_HOURS = 48;
+const ABSOLUTE_DAYS = 15;
 
 function cookieName() { return process.env.NODE_ENV === "production" ? PROD_COOKIE : DEV_COOKIE; }
 function tokenHash(token: string) { return createHash("sha256").update(token).digest("hex"); }
@@ -41,8 +41,8 @@ export async function setSessionCookie(user: SessionUser, meta?: { ip?: string |
   const token = randomBytes(32).toString("base64url");
   await pool.query(
     `INSERT INTO auth_sessions(token_hash,user_id,act_as_company_id,expires_at,ip,user_agent)
-     VALUES($1,$2,$3,CURRENT_TIMESTAMP + INTERVAL '7 days',$4,$5)`,
-    [tokenHash(token), user.id, user.act_as_company_id ?? null, meta?.ip?.slice(0,100) || null, meta?.userAgent?.slice(0,500) || null]
+     VALUES($1,$2,$3,CURRENT_TIMESTAMP + ($4 * INTERVAL '1 day'),$5,$6)`,
+    [tokenHash(token), user.id, user.act_as_company_id ?? null, ABSOLUTE_DAYS, meta?.ip?.slice(0,100) || null, meta?.userAgent?.slice(0,500) || null]
   );
   jar.set(cookieName(), token, { httpOnly:true, sameSite:"lax", secure:process.env.NODE_ENV === "production", path:"/", maxAge:ABSOLUTE_DAYS*86400 });
   if (cookieName() !== DEV_COOKIE) jar.delete(DEV_COOKIE);
@@ -67,8 +67,8 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
      FROM auth_sessions s JOIN users u ON u.id=s.user_id
      LEFT JOIN companies c ON c.id=s.act_as_company_id
      WHERE s.token_hash=$1 AND u.status='active' AND s.expires_at>CURRENT_TIMESTAMP
-       AND s.last_seen_at>CURRENT_TIMESTAMP - INTERVAL '8 hours' LIMIT 1`,
-    [tokenHash(token)]
+       AND s.last_seen_at>CURRENT_TIMESTAMP - ($2 * INTERVAL '1 hour') LIMIT 1`,
+    [tokenHash(token), IDLE_HOURS]
   );
   const row = result.rows[0];
   if (!row) return null;

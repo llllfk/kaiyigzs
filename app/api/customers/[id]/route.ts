@@ -1,15 +1,21 @@
 import { NextRequest } from "next/server";
 import pool from "@/lib/db";
-import { requireSession } from "@/lib/auth";
-import { assertCanAccessCustomer } from "@/lib/permissions";
+import { requireSession, verifyPassword } from "@/lib/auth";
+import { assertCanAccessCustomer, crmRole, sameId } from "@/lib/permissions";
 import { writeAuditLog } from "@/lib/audit";
 import { handleApiError, jsonOk, jsonError } from "@/lib/api";
+import { clientIp, assertNotRateLimited, enforceRateLimit } from "@/lib/security";
 import { normalizePhone } from "@/lib/utils";
 import { isCustomerStatus } from "@/types";
 import { mergePainPoints } from "@/lib/pain-points";
 import { resolvePublicRecordId } from "@/lib/public-id";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+function canDeleteCustomer(user: Awaited<ReturnType<typeof requireSession>>) {
+  const role = crmRole(user);
+  return role === "company_admin" || role === "sales_manager";
+}
 
 export async function GET(_request: NextRequest, { params }: Ctx) {
   try {
@@ -110,7 +116,7 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
     }
 
     const ownerChanged =
-      body.owner_id != null && Number(body.owner_id) !== existing.owner_id;
+      body.owner_id != null && !sameId(body.owner_id, existing.owner_id);
 
     const result = await pool.query(
       `UPDATE customers SET
@@ -165,24 +171,67 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: Ctx) {
+export async function DELETE(request: NextRequest, { params }: Ctx) {
   try {
     const user = await requireSession();
+    if (!canDeleteCustomer(user)) {
+      return jsonError("仅公司管理员或销售经理可删除客户", 403);
+    }
+
     const key = (await params).id;
     const resolved = await resolvePublicRecordId("customers", key);
     if (!resolved) return jsonError("未找到", 404);
     const id = String(resolved.id);
     await assertCanAccessCustomer(user, Number(id));
-    if (user.role === "sales") {
-      return jsonError("销售无权删除客户", 403);
+
+    const body = await request.json().catch(() => ({}));
+    const password = String(body.password || "");
+    if (!password) return jsonError("请输入登录密码以确认删除", 400);
+
+    // 防试密码：仅统计错误次数；锁定后先拦截再验密
+    const ip = clientIp(request);
+    const userLimitKey = `customer-delete:user:${user.id}`;
+    const ipLimitKey = `customer-delete:ip:${ip}`;
+    await assertNotRateLimited(userLimitKey);
+    await assertNotRateLimited(ipLimitKey);
+
+    const auth = await pool.query(
+      `SELECT password_hash FROM users WHERE id = $1 AND status = 'active' LIMIT 1`,
+      [user.id]
+    );
+    const hash = String(auth.rows[0]?.password_hash || "");
+    if (!hash || !(await verifyPassword(password, hash))) {
+      await enforceRateLimit({
+        key: userLimitKey,
+        limit: 5,
+        windowSeconds: 900,
+        blockSeconds: 1800,
+      });
+      await enforceRateLimit({
+        key: ipLimitKey,
+        limit: 20,
+        windowSeconds: 900,
+        blockSeconds: 1800,
+      });
+      return jsonError("密码不正确", 403);
     }
+
+    const existing = await pool.query(
+      `SELECT id, company_name, name FROM customers WHERE id = $1`,
+      [id]
+    );
+    const row = existing.rows[0];
+    if (!row) return jsonError("未找到", 404);
+
     await pool.query(`DELETE FROM customers WHERE id = $1`, [id]);
+    const label =
+      [row.company_name, row.name].filter(Boolean).join(" / ") || String(id);
     await writeAuditLog({
       user,
       action: "customer.delete",
       targetType: "customer",
       targetId: id,
-      summary: `删除客户 ${id}`,
+      summary: `删除客户 ${label}`,
     });
     return jsonOk({ ok: true });
   } catch (err) {

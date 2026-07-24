@@ -57,6 +57,25 @@ export async function enforceRateLimit(params: {
   }
 }
 
+/** 仅检查是否已锁定，不增加计数（用于先拦再校验密码） */
+export async function assertNotRateLimited(key: string) {
+  const bucket = securityHash(key).slice(0, 64);
+  const result = await pool.query(
+    `SELECT blocked_until FROM security_rate_limits WHERE bucket_key = $1 LIMIT 1`,
+    [bucket]
+  );
+  const blockedUntil = result.rows[0]?.blocked_until
+    ? new Date(result.rows[0].blocked_until)
+    : null;
+  if (blockedUntil && blockedUntil.getTime() > Date.now()) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil((blockedUntil.getTime() - Date.now()) / 1000)
+    );
+    throw new RateLimitError(retryAfter);
+  }
+}
+
 export class RateLimitError extends AuthError {
   retryAfter: number;
   constructor(retryAfter: number) {
