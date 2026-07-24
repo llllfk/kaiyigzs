@@ -1,0 +1,5 @@
+pkill -9 -f 'next dev' 2>/dev/null; sleep 2; cd /workspace/projects && nohup bash scripts/coze-preview-run.sh > /tmp/preview.log 2>&1 &
+
+
+#验证是否成功
+sleep 5; curl -s -o /dev/null -w '%{http_code}' http://localhost:5000

@@ -1,0 +1,21 @@
+{
+  "appId": "cn.kaiyi.salescrm",
+  "appName": "凯艺销售CRM",
+  "webDir": "www",
+  "server": {
+    "url": "https://kayicrm.coze.site",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#ffffff",
+    "adjustMarginsForEdgeToEdge": "disable"
+  },
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "DARK",
+      "backgroundColor": "#ffffff"
+    }
+  }
+}

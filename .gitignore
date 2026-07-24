@@ -1,4 +1,5 @@
 node_modules
+<<<<<<< HEAD
 dist
 .DS_Store
 *.swp
@@ -163,3 +164,22 @@ Desktop.ini
 # Misc
 .coze-logs
 .codegraph/
+=======
+.next
+.env.local
+.env*.local
+*.log
+.DS_Store
+storage
+tsconfig.tsbuildinfo
+mobile/node_modules
+mobile/.idea
+mobile/android/.idea
+mobile/android/.gradle
+mobile/android/app/build
+mobile/android/build
+mobile/android/local.properties
+mobile/android/**/build
+*.apk
+*.aab
+>>>>>>> b8cb24a19c9260d652cdaac1ea3585b029169db3

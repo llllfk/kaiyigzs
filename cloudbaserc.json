@@ -1,0 +1,7 @@
+{
+  "version": "2.0",
+  "envId": "crm-d0gxm0f75fabbc3bd",
+  "cloudrun": {
+    "name": "sales-crm"
+  }
+}
