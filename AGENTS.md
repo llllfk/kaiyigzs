@@ -73,13 +73,15 @@
 
 ## 生产环境变量（导入 Coze 后必配）
 
-| 变量 | 要求 |
-|------|------|
-| `DATABASE_URL` | 须含 `sslmode=require` |
-| `SESSION_SECRET` | ≥ 32 位 |
-| `CONFIG_ENCRYPTION_KEY` | 32 字节 Base64 |
-| `APP_ORIGINS` | 公网 Origin，如 `https://xxx.coze.site`（无末尾 `/`；可多域名逗号分隔） |
-| `TRUST_PROXY` | `true` |
+
+| 变量                      | 要求                                                    |
+| ----------------------- | ----------------------------------------------------- |
+| `DATABASE_URL`          | 须含 `sslmode=require`                                  |
+| `SESSION_SECRET`        | ≥ 32 位                                                |
+| `CONFIG_ENCRYPTION_KEY` | 32 字节 Base64                                          |
+| `APP_ORIGINS`           | 公网 Origin，如 `https://xxx.coze.site`（无末尾 `/`；可多域名逗号分隔） |
+| `TRUST_PROXY`           | `true`                                                |
+
 
 可选：`PUBLIC_APP_BASE_URL`、`DEV_DEMO_LOGIN` + `DEV_*_PASSWORD`、Coze/火山 AI 与 Storage 相关变量。
 
@@ -91,3 +93,4 @@
 - 登录 403 `Invalid request origin` → 检查 `APP_ORIGINS` + `TRUST_PROXY`
 - 整站 500 / instrumentation → 检查 `SESSION_SECRET` 等必填项
 - 无 Coze Storage 时回退本地 `storage/`（生产勿依赖）
+
