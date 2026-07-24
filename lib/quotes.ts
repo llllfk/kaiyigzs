@@ -528,11 +528,12 @@ export async function createQuoteShare(params: {
     const inserted = await client.query(
       `INSERT INTO quote_shares
         (quote_id, company_id, token, token_hash, status, expires_at, max_views, created_by)
-       VALUES ($1,$2,NULL,$3,'active',$4,$5,$6)
+       VALUES ($1,$2,$3,$4,'active',$5,$6,$7)
        RETURNING *`,
       [
         quote.id,
         user.company_id,
+        token,
         hash,
         expiresAt.toISOString(),
         settings.share_max_views,
@@ -547,7 +548,7 @@ export async function createQuoteShare(params: {
       targetId: quote.id,
       summary: `生成客户确认链接，有效 ${settings.share_valid_days} 天 / ${settings.share_max_views} 次`,
     });
-    return { ...inserted.rows[0], token } as QuoteShareRow;
+    return inserted.rows[0] as QuoteShareRow;
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;

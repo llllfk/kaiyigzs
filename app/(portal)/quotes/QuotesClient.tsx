@@ -14,8 +14,6 @@ import { EMPTY_PAGE_META, pageRowNo, type PageMeta } from "@/lib/pagination";
 import { pageCacheFetchJson, pageCachePeek } from "@/lib/page-cache";
 import { useSessionUser } from "@/components/shared/SessionUserContext";
 import { useViewMode } from "@/components/ui/ViewModeToggle";
-import { CollapsibleListFilters } from "@/components/ui/CollapsibleListFilters";
-
 type QuoteItem = {
   id?: number;
   name: string;
@@ -672,98 +670,87 @@ export default function QuotesClient() {
       </div>
 
       {tab === "mine" ? (
-        <CollapsibleListFilters
-          activeCount={
-            (filterStatus ? 1 : 0) +
-            (filterOppId ? 1 : 0) +
-            (filterCustomerQ.trim() ? 1 : 0)
-          }
-          primary={
-            <div className="relative w-full min-w-0 md:max-w-xs md:flex-1">
-              <input
-                className={`input w-full ${customerInput ? "pr-9" : ""}`}
-                placeholder="搜索客户"
-                value={customerInput}
-                onChange={(e) => setCustomerInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const q = customerInput.trim();
-                    setFilterCustomerQ(q);
-                    if (page === 1) void load({ force: true, customerQ: q, page: 1 });
-                    else setPage(1);
-                  }
-                }}
-              />
-              {customerInput ? (
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
-                  onClick={() => {
-                    setCustomerInput("");
-                    setFilterCustomerQ("");
-                    if (page === 1) void load({ force: true, customerQ: "", page: 1 });
-                    else setPage(1);
-                  }}
-                >
-                  清除
-                </button>
-              ) : null}
-            </div>
-          }
-          secondary={
-            <>
-              <div className="w-36 min-w-[8rem]">
-                <Select
-                  value={filterStatus}
-                  onChange={(v) => {
-                    setFilterStatus(v);
-                    setPage(1);
-                  }}
-                  options={QUOTE_STATUS_FILTERS}
-                  placeholder="状态"
-                />
-              </div>
-              <div className="min-w-[12rem] flex-1 sm:max-w-sm">
-                <Select
-                  value={filterOppId}
-                  onChange={(v) => {
-                    setFilterOppId(v);
-                    setPage(1);
-                  }}
-                  searchable
-                  onQueryChange={onOppQueryChange}
-                  placeholder="全部商机"
-                  options={[
-                    { value: "", label: "全部商机" },
-                    ...opps.map((o) => ({
-                      value: String(o.id),
-                      label: `${o.title}${o.customer_name ? ` · ${o.customer_name}` : ""}`,
-                    })),
-                  ]}
-                />
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-9"
-                onClick={() => {
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-36 min-w-[8rem]">
+            <Select
+              value={filterStatus}
+              onChange={(v) => {
+                setFilterStatus(v);
+                setPage(1);
+              }}
+              options={QUOTE_STATUS_FILTERS}
+              placeholder="状态"
+            />
+          </div>
+          <div className="min-w-[12rem] flex-1 sm:max-w-sm">
+            <Select
+              value={filterOppId}
+              onChange={(v) => {
+                setFilterOppId(v);
+                setPage(1);
+              }}
+              searchable
+              onQueryChange={onOppQueryChange}
+              placeholder="全部商机"
+              options={[
+                { value: "", label: "全部商机" },
+                ...opps.map((o) => ({
+                  value: String(o.id),
+                  label: `${o.title}${o.customer_name ? ` · ${o.customer_name}` : ""}`,
+                })),
+              ]}
+            />
+          </div>
+          <div className="relative w-full min-w-0 md:max-w-xs md:flex-1">
+            <input
+              className={`input w-full ${customerInput ? "pr-9" : ""}`}
+              placeholder="搜索客户"
+              value={customerInput}
+              onChange={(e) => setCustomerInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
                   const q = customerInput.trim();
                   setFilterCustomerQ(q);
                   if (page === 1) void load({ force: true, customerQ: q, page: 1 });
                   else setPage(1);
+                }
+              }}
+            />
+            {customerInput ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)]"
+                onClick={() => {
+                  setCustomerInput("");
+                  setFilterCustomerQ("");
+                  if (page === 1) void load({ force: true, customerQ: "", page: 1 });
+                  else setPage(1);
                 }}
               >
-                查询
-              </Button>
-              {hasMineFilters ? (
-                <Button type="button" variant="ghost" className="min-h-9" onClick={clearFilters}>
-                  重置
-                </Button>
-              ) : null}
-            </>
-          }
-        />
+                清除
+              </button>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-9"
+            onClick={() => {
+              const q = customerInput.trim();
+              setFilterCustomerQ(q);
+              if (page === 1) void load({ force: true, customerQ: q, page: 1 });
+              else setPage(1);
+            }}
+          >
+            查询
+          </Button>
+          {hasMineFilters ? (
+            <Button type="button" variant="ghost" className="min-h-9" onClick={clearFilters}>
+              重置
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       {viewMode === "table" ? (
@@ -1110,7 +1097,9 @@ export default function QuotesClient() {
                       ? "重新生成"
                       : "生成链接"}
                   </Button>
-                  {editing.share?.status === "active" && !editing.share.expired ? (
+                  {editing.share?.status === "active" &&
+                  !editing.share.expired &&
+                  editing.share.url ? (
                     <>
                       <Button
                         type="button"
@@ -1130,6 +1119,16 @@ export default function QuotesClient() {
                         复制
                       </Button>
                     </>
+                  ) : editing.share?.status === "active" && !editing.share.expired ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="!px-2 !py-1 text-xs whitespace-nowrap"
+                      disabled={shareBusy}
+                      onClick={() => void revokeShare(editing.id)}
+                    >
+                      撤销
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -1139,6 +1138,10 @@ export default function QuotesClient() {
                     <code className="block w-full truncate rounded bg-white/80 px-2 py-1 text-[11px]">
                       {editing.share.url}
                     </code>
+                  ) : editing.share.status === "active" && !editing.share.expired ? (
+                    <p className="rounded bg-white/80 px-2 py-1 text-[11px] text-amber-800">
+                      当前链接已生成，但无法还原完整地址（旧数据）。请点「重新生成」后再复制。
+                    </p>
                   ) : null}
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
                     <span>

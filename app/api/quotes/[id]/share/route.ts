@@ -11,10 +11,15 @@ import {
   revokeQuoteShare,
   serializeQuoteShareWithViews,
 } from "@/lib/quotes";
+import { configuredPublicOrigin } from "@/lib/quote-share-meta";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/** 分享链接必须用公网域名；Coze 反代下 request Host 常是内部 sandbox */
 function requestOrigin(request: NextRequest) {
+  const configured = configuredPublicOrigin();
+  if (configured) return configured;
+
   const proto = request.headers.get("x-forwarded-proto") || "http";
   const host =
     request.headers.get("x-forwarded-host") || request.headers.get("host");

@@ -21,8 +21,18 @@ import {
   type QuoteItemInput,
 } from "@/lib/quotes";
 import { resolvePublicRecordId } from "@/lib/public-id";
+import { configuredPublicOrigin } from "@/lib/quote-share-meta";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+function requestOrigin(request: NextRequest) {
+  const configured = configuredPublicOrigin();
+  if (configured) return configured;
+  const proto = request.headers.get("x-forwarded-proto");
+  const host =
+    request.headers.get("x-forwarded-host") || request.headers.get("host");
+  return proto && host ? `${proto}://${host}` : new URL(request.url).origin;
+}
 
 async function getOwnedQuote(userId: number, companyId: number, quoteId: number) {
   const res = await pool.query(
@@ -63,16 +73,11 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const meta = names.rows[0] || {};
     const share =
       (await getActiveQuoteShare(id)) || (await getLatestQuoteShare(id));
-    const proto = request.headers.get("x-forwarded-proto");
-    const host =
-      request.headers.get("x-forwarded-host") || request.headers.get("host");
-    const origin =
-      proto && host ? `${proto}://${host}` : new URL(request.url).origin;
     return jsonOk({
       ...quote,
       items,
       settings,
-      share: await serializeQuoteShareWithViews(share, origin),
+      share: await serializeQuoteShareWithViews(share, requestOrigin(request)),
       submitter_name: meta.submitter_name || meta.owner_name || null,
       owner_name: meta.owner_name || null,
       approver_name: meta.approver_name || null,

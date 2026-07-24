@@ -6,8 +6,20 @@ import { appPublicBaseUrl } from "@/lib/temp-audio";
 const FALLBACK_TITLE = "报价确认";
 const FALLBACK_DESC = "请点击查看并确认报价";
 
-export async function resolvePublicOrigin(): Promise<string> {
+/** 公开链接用的公网 Origin：优先配置，避免 Coze/沙箱内部 Host 污染分享 URL */
+export function configuredPublicOrigin(): string {
   const configured = appPublicBaseUrl();
+  if (configured) return configured;
+
+  const firstOrigin = (process.env.APP_ORIGINS || "")
+    .split(",")
+    .map((v) => v.trim().replace(/\/$/, ""))
+    .find(Boolean);
+  return firstOrigin || "";
+}
+
+export async function resolvePublicOrigin(): Promise<string> {
+  const configured = configuredPublicOrigin();
   if (configured) return configured;
 
   try {
@@ -21,11 +33,7 @@ export async function resolvePublicOrigin(): Promise<string> {
     /* headers() may be unavailable in some contexts */
   }
 
-  const firstOrigin = (process.env.APP_ORIGINS || "")
-    .split(",")
-    .map((v) => v.trim().replace(/\/$/, ""))
-    .find(Boolean);
-  return firstOrigin || "http://localhost:3001";
+  return "http://localhost:3001";
 }
 
 export function buildQuoteShareCardCopy(quote: {
