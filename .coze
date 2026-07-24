@@ -1,5 +1,4 @@
 [project]
-<<<<<<< HEAD
 requires = [ "nodejs-24" ]
 template = "nextjs"
 version = "0.0.28"
@@ -15,30 +14,3 @@ deps = [ "git" ]
 build = [ "bash", "./scripts/build.sh" ]
 run = [ "bash", "./scripts/start.sh" ]
 deps = [ "git" ]
-=======
-sub_id = "60c1f24b"
-name = "sales-crm"
-requires = ["nodejs-24"]
-project_type = "web"
-
-[preview]
-preview_enable = "enabled"
-
-[dev]
-build = ["bash", "scripts/coze-preview-build.sh"]
-run = ["bash", "scripts/coze-preview-run.sh"]
-
-[deploy]
-build = ["bash", ".cozeproj/scripts/deploy_build.sh"]
-run = ["bash", ".cozeproj/scripts/deploy_run.sh"]
-
-[deploy.profile]
-kind = "service"
-flavor = "web"
-
-[deploy.backend]
-enabled = true
-
-[subprojects]
-path = ["."]
->>>>>>> b8cb24a19c9260d652cdaac1ea3585b029169db3

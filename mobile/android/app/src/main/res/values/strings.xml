@@ -1,8 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">凯艺销售CRM</string>
-    <string name="title_activity_main">凯艺销售CRM</string>
-    <string name="package_name">cn.kaiyi.salescrm</string>
-    <string name="custom_url_scheme">cn.kaiyi.salescrm</string>
-    <string name="splash_credit">\@泊头市凯艺软件开发工作室</string>
-</resources>
