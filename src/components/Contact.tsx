@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Mail, MessageSquare } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -62,21 +62,11 @@ export default function Contact() {
           >
             <div className="flex items-start gap-4">
               <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.05] text-zinc-400 shrink-0">
-                <Mail size={18} strokeWidth={1.5} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white mb-1">邮箱</p>
-                <p className="text-sm text-zinc-400">kaige@kaiyi.dev</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4">
-              <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.05] text-zinc-400 shrink-0">
                 <MessageSquare size={18} strokeWidth={1.5} />
               </div>
               <div>
                 <p className="text-sm font-medium text-white mb-1">微信</p>
-                <p className="text-sm text-zinc-400">请联系获取微信号</p>
+                <p className="text-sm text-zinc-400">kaiyigzs</p>
               </div>
             </div>
           </motion.div>
