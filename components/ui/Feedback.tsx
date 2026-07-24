@@ -121,7 +121,7 @@ function ToastViewport({
 }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 top-3 z-[150] flex flex-col items-center gap-2 px-3 sm:items-end sm:pr-4">
+    <div className="app-toast-viewport pointer-events-none fixed inset-x-0 z-[150] flex flex-col items-center gap-2 px-3 sm:items-end sm:pr-4">
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -174,7 +174,7 @@ function ConfirmDialog({
 }: ConfirmOptions & { onCancel: () => void; onConfirm: () => void }) {
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div className="fixed inset-0 z-[140] flex items-end justify-center p-4 sm:items-center">
+    <div className="fixed inset-0 z-[140] flex items-end justify-center p-4 pt-[calc(var(--app-top-inset)+1rem)] sm:items-center sm:pt-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/40"

@@ -3,6 +3,7 @@
 import { AppLink } from "@/components/ui/AppLink";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { useAppRouter } from "@/hooks/useAppRouter";
@@ -15,6 +16,7 @@ import {
 import { ROLE_LABELS, type SessionUser } from "@/types";
 import { FeatureGridIcon } from "@/components/nav/FeatureGridIcon";
 import {
+  compactBottomItems,
   navFor,
   pathActive,
   type NavEntry,
@@ -35,6 +37,7 @@ let taskBadgeCache: { data: TaskBadge; at: number } | null = null;
 let taskBadgeRequest: Promise<TaskBadge | null> | null = null;
 const EMPTY_TASK_BADGE: TaskBadge = { overdue: 0, urgent: 0, total: 0 };
 
+/** 侧栏一级项样式见 globals.css `.side-nav-top-item` */
 function groupContainsPath(group: Extract<NavEntry, { type: "group" }>, pathname: string) {
   return group.children.some((c) => pathActive(pathname, c.href));
 }
@@ -225,18 +228,21 @@ function UserMenu() {
 
   return (
     <div className="relative" ref={ref}>
-      {loggingOut && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/25 backdrop-blur-[1px]"
-          role="status"
-          aria-live="polite"
-          aria-busy="true"
-        >
-          <div className="rounded-xl bg-white px-5 py-4 text-sm font-medium text-[var(--color-text)] shadow-lg">
-            正在退出…
-          </div>
-        </div>
-      )}
+      {loggingOut &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-start justify-center bg-black/25 px-4 pt-[calc(var(--app-top-inset)+5.5rem)] backdrop-blur-[1px] md:items-center md:pt-0"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="rounded-xl bg-white px-5 py-4 text-sm font-medium text-[var(--color-text)] shadow-lg">
+              正在退出…
+            </div>
+          </div>,
+          document.body
+        )}
       <button
         type="button"
         aria-haspopup="menu"
@@ -345,25 +351,22 @@ function SideNav({
   onPrefetchGroup?: (hrefs: string[]) => void;
 }) {
   return (
-    <nav className="flex flex-col gap-3 p-3">
+    <nav className="flex flex-col gap-1 p-3">
       {entries.map((entry) => {
         if (entry.type === "link") {
           const active = pathActive(pathname, entry.href);
           return (
-            <AppLink
-              key={entry.href}
-              href={entry.href}
-              onClick={onNavigate}
-              className={cn(
-                "flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold text-white/90",
-                "hover:bg-[var(--color-sidebar-hover)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70",
-                active && "bg-[var(--color-sidebar-hover)] text-white"
-              )}
-            >
-              <NavIcon name="dashboard" />
-              <span>{entry.label}</span>
-            </AppLink>
+            <div key={entry.href}>
+              <AppLink
+                href={entry.href}
+                onClick={onNavigate}
+                className={cn("side-nav-top-item", active && "is-current")}
+              >
+                <NavIcon name="dashboard" />
+                <span className="side-nav-top-item__label">{entry.label}</span>
+                <span className="side-nav-top-item__trail" aria-hidden />
+              </AppLink>
+            </div>
           );
         }
 
@@ -371,7 +374,7 @@ function SideNav({
         const groupActive = groupContainsPath(entry, pathname);
 
         return (
-          <div key={entry.id} className="space-y-1">
+          <div key={entry.id}>
             <button
               type="button"
               aria-expanded={expanded}
@@ -381,20 +384,14 @@ function SideNav({
                 }
                 onToggleGroup(entry.id);
               }}
-              className={cn(
-                "flex min-h-10 w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left",
-                "text-[12px] font-bold tracking-wide",
-                groupActive ? "text-white" : "text-white/85",
-                "hover:bg-white/10 hover:text-white",
-                "focus-visible:outline-none focus-visible:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-300/70"
-              )}
+              className={cn("side-nav-top-item", groupActive && "is-active")}
             >
               <NavIcon name={entry.id} />
-              <span className="min-w-0 flex-1">{entry.label}</span>
+              <span className="side-nav-top-item__label">{entry.label}</span>
               <ChevronIcon expanded={expanded} />
             </button>
             {expanded ? (
-              <div className="ml-2 space-y-0.5 border-l border-white/15 pl-2.5">
+              <div className="ml-4 mt-1 space-y-0.5 border-l border-white/15 pl-3.5">
                 {entry.children.map((item) => {
                   const active = pathActive(pathname, item.href);
                   return (
@@ -465,10 +462,14 @@ function AppShellFrame({
   const [unreadCount, setUnreadCount] = useState(unread);
   const [taskBadge, setTaskBadge] = useState<TaskBadge>(EMPTY_TASK_BADGE);
   const acting = Boolean(user.act_as_company_id);
-  const showCompanyChrome = user.role !== "super_admin" || acting;
   const entries = useMemo(
     () => navFor(user),
     // 只用权限相关字段，避免 user 引用变化导致菜单强制重开
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user.role, user.act_as_company_id, user.company_id, user.id]
+  );
+  const bottomItems = useMemo(
+    () => compactBottomItems(user),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user.role, user.act_as_company_id, user.company_id, user.id]
   );
@@ -621,14 +622,6 @@ function AppShellFrame({
     onPrefetchGroup: prefetchGroup,
   };
 
-  const bottomItems = [
-    { href: "/dashboard", label: "工作台" },
-    { href: "/customers", label: "客户" },
-    { href: "/apps", label: "功能" },
-    { href: "/tasks", label: "待办" },
-    { href: "/knowledge", label: "知识库" },
-  ];
-
   return (
     <div className="min-h-screen md:flex">
       <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:z-20 md:flex md:w-52 md:flex-col md:overflow-hidden bg-[var(--color-sidebar)] text-white">
@@ -682,63 +675,76 @@ function AppShellFrame({
             </Button>
           </div>
         )}
-        <header
+        <div
           className={cn(
-            "sticky z-30 flex min-h-14 items-center gap-3 border-b border-[var(--color-border)] bg-white/95 px-4 backdrop-blur",
+            "sticky z-30 bg-white/95 backdrop-blur md:contents",
             acting ? "top-10" : "top-0"
           )}
         >
-          {!compactMobile && (
-            <div className="md:hidden">
-              <button
-                type="button"
-                className="btn btn-secondary min-h-9 px-3"
-                aria-expanded={mobileOpen}
-                aria-label="菜单"
-                onClick={() => setMobileOpen(true)}
-              >
-                菜单
-              </button>
-            </div>
-          )}
-          {showBack && (
-            <div className="hidden md:block">
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-9 px-3"
-                onClick={() => router.back()}
-              >
-                返回
-              </Button>
-            </div>
-          )}
-          <div className="flex-1" />
-          <AppLink
-            href="/notifications"
-            className="btn btn-secondary relative flex min-h-10 w-10 items-center justify-center px-0"
-            aria-label={unreadCount > 0 ? `通知，${unreadCount} 条未读` : "通知"}
-          >
-            <FeatureGridIcon href="/notifications" size={26} />
-            {unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] text-white">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
+          {/* 手机端顶栏上方占位：高度覆盖系统状态栏，把通知/账号 header 往下挤；电脑端不显示 */}
+          <div
+            aria-hidden
+            className="bg-white md:hidden"
+            style={{ height: "var(--app-top-inset)" }}
+          />
+          <header
+            className={cn(
+              "flex min-h-14 items-center gap-3 border-b border-[var(--color-border)] bg-white/95 px-4 md:sticky md:z-30 md:backdrop-blur",
+              acting ? "md:top-10" : "md:top-0"
             )}
-          </AppLink>
-          <UserMenu />
-        </header>
+          >
+            {!compactMobile && (
+              <div className="md:hidden">
+                <button
+                  type="button"
+                  className="btn btn-secondary min-h-9 px-3"
+                  aria-expanded={mobileOpen}
+                  aria-label="菜单"
+                  onClick={() => setMobileOpen(true)}
+                >
+                  菜单
+                </button>
+              </div>
+            )}
+            {showBack && (
+              <div className="hidden md:block">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="min-h-9 px-3"
+                  onClick={() => router.back()}
+                >
+                  返回
+                </Button>
+              </div>
+            )}
+            <div className="flex-1" />
+            <AppLink
+              href="/notifications"
+              className="btn btn-secondary relative flex min-h-10 w-10 items-center justify-center px-0"
+              aria-label={unreadCount > 0 ? `通知，${unreadCount} 条未读` : "通知"}
+            >
+              <FeatureGridIcon href="/notifications" size={26} />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ef4444] px-1 text-[10px] text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </AppLink>
+            <UserMenu />
+          </header>
+        </div>
         <main
           className={cn(
             "min-w-0 flex-1 overflow-x-clip p-4 md:p-6",
-            showCompanyChrome && compactMobile && "pb-24"
+            compactMobile && "pb-24"
           )}
         >
           {children}
         </main>
       </div>
 
-      {showCompanyChrome && compactMobile && (
+      {compactMobile && (
         <nav className="fixed inset-x-0 bottom-0 z-30 flex min-h-[3.75rem] border-t border-[var(--color-border)] bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
           {bottomItems.map((item) => {
             const active = pathActive(pathname, item.href);
