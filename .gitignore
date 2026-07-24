@@ -7,7 +7,12 @@ node_modules
 storage
 tsconfig.tsbuildinfo
 mobile/node_modules
+mobile/.idea
+mobile/android/.idea
 mobile/android/.gradle
 mobile/android/app/build
 mobile/android/build
 mobile/android/local.properties
+mobile/android/**/build
+*.apk
+*.aab
