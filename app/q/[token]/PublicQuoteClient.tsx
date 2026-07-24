@@ -316,9 +316,9 @@ export default function PublicQuoteClient({ token }: { token: string }) {
 
   return (
     <div className="min-h-screen bg-[#eef2f7]">
-      <div className="mx-auto max-w-3xl px-4 py-8 sm:py-12">
-        <div className="mb-6 text-center">
-          <div className="text-lg font-bold tracking-tight text-[#1e3a5f]">
+      <div className="mx-auto max-w-3xl px-3 py-6 sm:px-4 sm:py-12">
+        <div className="mb-5 text-center sm:mb-6">
+          <div className="text-base font-bold tracking-tight text-[#1e3a5f] sm:text-lg">
             {quote?.company_name || "凯艺销售CRM"}
           </div>
           <div className="mt-1 text-sm text-slate-500">报价确认</div>
@@ -341,19 +341,19 @@ export default function PublicQuoteClient({ token }: { token: string }) {
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h1 className="text-xl font-bold text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h1 className="break-words text-lg font-bold text-slate-900 sm:text-xl">
                     {quote.title || "报价单"}
                   </h1>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 break-words text-sm text-slate-500">
                     V{quote.version}
                     {quote.customer_name ? ` · ${quote.customer_name}` : ""}
                     {quote.opportunity_title ? ` · ${quote.opportunity_title}` : ""}
                   </p>
                 </div>
-                <div className="text-right">
+                <div className="min-w-0 text-left">
                   <div className="text-2xl font-bold tabular-nums text-[#1e3a5f]">
                     {money(quote.total)}
                   </div>
@@ -363,7 +363,7 @@ export default function PublicQuoteClient({ token }: { token: string }) {
                 </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+              <div className="mt-4 flex flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:flex-wrap sm:gap-x-4 sm:gap-y-1">
                 {quote.valid_until ? (
                   <span>报价有效至 {String(quote.valid_until).slice(0, 10)}</span>
                 ) : null}
@@ -378,11 +378,55 @@ export default function PublicQuoteClient({ token }: { token: string }) {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
                 明细
               </div>
-              <div className="overflow-x-auto">
+
+              {/* 手机：卡片列表，避免宽表被裁切 */}
+              <div className="divide-y divide-slate-100 sm:hidden">
+                {quote.items.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-slate-400">暂无明细</div>
+                ) : (
+                  quote.items.map((it, i) => (
+                    <div key={i} className="space-y-2 px-4 py-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="break-words font-medium text-slate-900">{it.name}</div>
+                          {it.spec ? (
+                            <div className="mt-0.5 break-words text-xs text-slate-500">
+                              {it.spec}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="shrink-0 tabular-nums font-semibold text-slate-900">
+                          {money(it.amount)}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>
+                          数量 <span className="tabular-nums text-slate-700">{it.qty}</span>
+                        </span>
+                        <span>
+                          单价{" "}
+                          <span className="tabular-nums text-slate-700">
+                            {money(it.unit_price)}
+                          </span>
+                        </span>
+                        <span>
+                          折扣{" "}
+                          <span className="tabular-nums text-slate-700">
+                            {Number(it.discount_pct) || 0}%
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* 桌面：表格 */}
+              <div className="hidden overflow-x-auto sm:block">
                 <table className="w-full min-w-[36rem] text-sm">
                   <thead className="bg-slate-50 text-left text-slate-500">
                     <tr>
@@ -397,22 +441,12 @@ export default function PublicQuoteClient({ token }: { token: string }) {
                   <tbody className="divide-y divide-slate-100">
                     {quote.items.map((it, i) => (
                       <tr key={i}>
-                        <td className="px-4 py-2.5 font-medium text-slate-900">
-                          {it.name}
-                        </td>
-                        <td className="px-4 py-2.5 text-slate-500">
-                          {it.spec || "—"}
-                        </td>
+                        <td className="px-4 py-2.5 font-medium text-slate-900">{it.name}</td>
+                        <td className="px-4 py-2.5 text-slate-500">{it.spec || "—"}</td>
                         <td className="px-4 py-2.5 tabular-nums">{it.qty}</td>
-                        <td className="px-4 py-2.5 tabular-nums">
-                          {money(it.unit_price)}
-                        </td>
-                        <td className="px-4 py-2.5 tabular-nums">
-                          {Number(it.discount_pct) || 0}
-                        </td>
-                        <td className="px-4 py-2.5 tabular-nums font-medium">
-                          {money(it.amount)}
-                        </td>
+                        <td className="px-4 py-2.5 tabular-nums">{money(it.unit_price)}</td>
+                        <td className="px-4 py-2.5 tabular-nums">{Number(it.discount_pct) || 0}</td>
+                        <td className="px-4 py-2.5 tabular-nums font-medium">{money(it.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -438,7 +472,7 @@ export default function PublicQuoteClient({ token }: { token: string }) {
             ) : (
               <form
                 onSubmit={onConfirm}
-                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"
               >
                 <div>
                   <h2 className="text-base font-semibold text-slate-900">确认报价</h2>

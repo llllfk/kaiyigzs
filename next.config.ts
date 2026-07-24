@@ -31,6 +31,21 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/og-quote-share.png",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=86400, immutable" },
+          { key: "Content-Type", value: "image/png" },
+        ],
+      },
+      {
+        source: "/q/:path*",
+        headers: [
+          // 允许微信等预览服务缓存短时 HTML，便于生成链接卡片
+          { key: "Cache-Control", value: "public, max-age=60, s-maxage=300" },
+          { key: "Referrer-Policy", value: "no-referrer-when-downgrade" },
+        ],
+      },
+      {
         source: "/:path*",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },

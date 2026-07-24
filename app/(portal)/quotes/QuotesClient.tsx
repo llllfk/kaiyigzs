@@ -1082,7 +1082,8 @@ export default function QuotesClient() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-sky-950">客户确认链接</div>
                   <p className="text-xs text-sky-900/70">
-                    发给客户查看并确认；发到微信会显示为带封面的链接卡片。有效期与查看次数见公司报价规则
+                    发给客户查看并确认。微信卡片需公网域名可被微信服务器访问（正式域名更稳；Coze
+                    预览域名常抓不到）。请先用浏览器打开链接确认可用，再发送；有效期与查看次数见公司报价规则
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-nowrap items-center gap-2">

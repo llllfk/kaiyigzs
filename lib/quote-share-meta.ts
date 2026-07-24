@@ -74,8 +74,8 @@ export async function buildPublicQuoteMetadata(token: string): Promise<Metadata>
     const loaded = await loadPublicQuoteByToken(token);
     if (loaded.ok) {
       const copy = buildQuoteShareCardCopy(loaded.quote);
-      cardTitle = copy.cardTitle;
-      cardDescription = copy.cardDescription;
+      cardTitle = truncateText(copy.cardTitle, 36);
+      cardDescription = truncateText(copy.cardDescription, 80);
       company = copy.company;
     } else if (loaded.code === "revoked" || loaded.code === "expired") {
       cardTitle = "报价链接已失效";
@@ -93,7 +93,8 @@ export async function buildPublicQuoteMetadata(token: string): Promise<Metadata>
     title: cardTitle,
     description: cardDescription,
     applicationName: company,
-    robots: { index: false, follow: false, nocache: true },
+    // 勿设 nocache：微信预览依赖可缓存抓取；仍禁止搜索引擎收录
+    robots: { index: false, follow: false },
     alternates: { canonical: url },
     openGraph: {
       type: "website",
@@ -105,6 +106,8 @@ export async function buildPublicQuoteMetadata(token: string): Promise<Metadata>
       images: [
         {
           url: imageUrl,
+          secureUrl: imageUrl,
+          type: "image/png",
           width: 600,
           height: 600,
           alt: cardTitle,
@@ -117,11 +120,11 @@ export async function buildPublicQuoteMetadata(token: string): Promise<Metadata>
       description: cardDescription,
       images: [imageUrl],
     },
-    // 微信等爬虫额外识别 itemprop（会输出为 name="itemprop:*"）
-    other: {
-      "itemprop:name": cardTitle,
-      "itemprop:description": cardDescription,
-      "itemprop:image": imageUrl,
-    },
   };
+}
+
+function truncateText(value: string, max: number) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
