@@ -15,16 +15,17 @@ type Props = {
 function ChevronLeftIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
+      className="shrink-0"
       aria-hidden
     >
       <path
         d="M15 6 9 12l6 6"
         stroke="currentColor"
-        strokeWidth="2.25"
+        strokeWidth="2.35"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -35,16 +36,17 @@ function ChevronLeftIcon() {
 function ChevronRightIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
+      className="shrink-0"
       aria-hidden
     >
       <path
         d="m9 6 6 6-6 6"
         stroke="currentColor"
-        strokeWidth="2.25"
+        strokeWidth="2.35"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -61,17 +63,24 @@ export function PaginationBar({
 }: Props) {
   const from = meta.total === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
   const to = Math.min(meta.page * meta.pageSize, meta.total);
-  const summary =
+  const summaryFull =
     meta.total > 0 ? `第 ${from}-${to} 条，共 ${meta.total} 条` : "共 0 条";
+  /** 手机窄屏优先保证「共 N 条」可见 */
+  const summaryCompact =
+    meta.total > 0 ? `${from}-${to} / 共 ${meta.total} 条` : "共 0 条";
   const prevDisabled = loading || meta.page <= 1;
   const nextDisabled = loading || meta.page >= meta.totalPages;
 
   return (
     <div className="flex items-center gap-1.5 sm:gap-2">
-      <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted)] sm:flex-none sm:text-sm">
-        {summary}
+      <span
+        className="min-w-0 flex-1 text-xs text-[var(--color-muted)] sm:flex-none sm:text-sm"
+        title={summaryFull}
+      >
+        <span className="sm:hidden">{summaryCompact}</span>
+        <span className="hidden sm:inline">{summaryFull}</span>
       </span>
-      <div className="w-[6.75rem] shrink-0 sm:w-32">
+      <div className="w-[7.75rem] shrink-0 sm:w-32">
         <Select
           value={String(pageSize)}
           onChange={(v) => onPageSizeChange(Number(v) || 10)}
@@ -81,7 +90,7 @@ export function PaginationBar({
       </div>
       <Button
         variant="secondary"
-        className="h-10 w-10 shrink-0 px-0"
+        className="inline-flex h-9 min-h-9 w-9 shrink-0 items-center justify-center overflow-hidden px-0"
         disabled={prevDisabled}
         aria-label="上一页"
         title="上一页"
@@ -89,12 +98,12 @@ export function PaginationBar({
       >
         <ChevronLeftIcon />
       </Button>
-      <span className="shrink-0 min-w-[3rem] text-center text-sm tabular-nums sm:min-w-20">
+      <span className="shrink-0 min-w-[2.75rem] text-center text-xs tabular-nums sm:min-w-20 sm:text-sm">
         {meta.page} / {meta.totalPages}
       </span>
       <Button
         variant="secondary"
-        className="h-10 w-10 shrink-0 px-0"
+        className="inline-flex h-9 min-h-9 w-9 shrink-0 items-center justify-center overflow-hidden px-0"
         disabled={nextDisabled}
         aria-label="下一页"
         title="下一页"

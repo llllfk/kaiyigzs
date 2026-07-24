@@ -74,7 +74,8 @@ export function publicUrlForObjectUri(uri: string): string | null {
 /** S3 预签名下载地址（火山可拉取） */
 export async function getPresignedGetUrl(
   uri: string,
-  expiresIn = 3600
+  expiresIn = 3600,
+  opts?: { fileName?: string; contentType?: string }
 ): Promise<string | null> {
   if (!uri.startsWith("s3://") || !storageConfigured()) return null;
   try {
@@ -83,9 +84,21 @@ export async function getPresignedGetUrl(
     const slash = without.indexOf("/");
     const bucket = without.slice(0, slash);
     const key = without.slice(slash + 1);
+    const fileName = opts?.fileName?.trim();
     return await getSignedUrl(
       s3Client,
-      new GetObjectCommand({ Bucket: bucket || BUCKET_NAME, Key: key }),
+      new GetObjectCommand({
+        Bucket: bucket || BUCKET_NAME,
+        Key: key,
+        ...(fileName
+          ? {
+              ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+            }
+          : {}),
+        ...(opts?.contentType
+          ? { ResponseContentType: opts.contentType }
+          : {}),
+      }),
       { expiresIn }
     );
   } catch (err) {
