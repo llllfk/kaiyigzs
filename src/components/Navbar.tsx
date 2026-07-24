@@ -48,9 +48,6 @@ export default function Navbar() {
           className="text-lg font-semibold tracking-tight text-white"
         >
           凯艺软件
-          <span className="ml-1.5 text-xs font-normal text-zinc-500">
-            KaiYi
-          </span>
         </a>
 
         {/* Desktop links */}
