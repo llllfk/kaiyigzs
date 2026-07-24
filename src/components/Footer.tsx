@@ -8,19 +8,9 @@ export default function Footer() {
         </p>
         <div className="flex items-center gap-6">
           <span className="text-xs text-zinc-600">
-            ICP备xxxxxxxx号
+            冀ICP备2026024383号-2
           </span>
-          {/* Social icon placeholders */}
-          <div className="flex items-center gap-3">
-            {['GitHub', 'WeChat', 'Email'].map((name) => (
-              <span
-                key={name}
-                className="w-8 h-8 rounded-full border border-white/[0.06] flex items-center justify-center text-zinc-600 hover:text-zinc-400 hover:border-white/[0.12] transition-colors cursor-pointer text-[10px]"
-              >
-                {name[0]}
-              </span>
-            ))}
-          </div>
+        
         </div>
       </div>
     </footer>
