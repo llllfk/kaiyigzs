@@ -62,7 +62,7 @@ const HIGHLIGHTS = [
 
 export default function MaoluKuaipinProject({
   githubUrl,
-  qrImageUrl = "/wechat-qrcode.png",
+  qrImageUrl = "/maolv-qr.jpg",
 }: Props) {
   const [visible, setVisible] = useState(false);
   const rootRef = useRef<HTMLElement>(null);

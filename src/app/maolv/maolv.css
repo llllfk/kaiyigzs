@@ -11,7 +11,7 @@
   background: var(--mkp-bg);
   font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   line-height: 1.65;
-  overflow: clip;
+  overflow-x: hidden;
 }
 
 .mkp * { box-sizing: border-box; }
@@ -21,7 +21,7 @@
   min-height: min(92vh, 820px);
   display: grid;
   place-items: end start;
-  padding: clamp(48px, 8vw, 96px) clamp(20px, 5vw, 72px) clamp(56px, 8vw, 100px);
+  padding: clamp(48px, 8vw, 96px) clamp(24px, 6vw, 80px) clamp(56px, 8vw, 100px);
   background:
     radial-gradient(ellipse 80% 60% at 70% 20%, rgba(255, 107, 53, 0.22), transparent 55%),
     radial-gradient(ellipse 50% 40% at 10% 80%, rgba(255, 179, 71, 0.1), transparent 50%),

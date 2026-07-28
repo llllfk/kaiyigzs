@@ -161,7 +161,7 @@ export default function MaolvPage() {
           <p className="mkp-sub">微信搜索「毛驴快拼」，或扫描小程序码进入。</p>
         </div>
         <figure className="mkp-qr">
-          <img src="/maolv-qr.png" alt="毛驴快拼小程序码" width={160} height={160} />
+          <img src="/maolv-qr.jpg" alt="毛驴快拼小程序码" width={160} height={160} />
           <figcaption>微信扫码体验</figcaption>
         </figure>
       </section>
