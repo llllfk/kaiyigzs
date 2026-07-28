@@ -83,7 +83,7 @@
   font-weight: 800;
   font-size: clamp(3.2rem, 10vw, 6.5rem);
   letter-spacing: -0.03em;
-  line-height: 0.95;
+  line-height: 1.1;
   background: linear-gradient(120deg, #fff 20%, var(--mkp-accent) 90%);
   -webkit-background-clip: text;
   background-clip: text;
