@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { ParticleBackground } from './ParticleBackground';
 
 export default function Hero() {
   const handleScroll = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -23,6 +24,9 @@ export default function Hero() {
           backgroundSize: '64px 64px',
         }}
       />
+
+      {/* Particle effect with mouse interaction */}
+      <ParticleBackground />
 
       {/* Top glow */}
       <div
