@@ -8,6 +8,7 @@ import {
   GraduationCap,
   Car,
   CreditCard,
+  Bot,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -17,6 +18,7 @@ const iconMap: Record<string, LucideIcon> = {
   GraduationCap,
   Car,
   CreditCard,
+  Bot,
 };
 
 interface Product {
