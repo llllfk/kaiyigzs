@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { asc } from 'drizzle-orm';
+import { getDb } from '@/storage/database/db';
+import { products } from '@/storage/database/shared/schema';
 
 export interface Product {
   id: string;
@@ -11,19 +13,26 @@ export interface Product {
 }
 
 export async function GET() {
-  const client = getSupabaseClient();
+  try {
+    const db = getDb();
+    const rows = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        url: products.url,
+        description: products.description,
+        icon: products.icon,
+        sort_order: products.sort_order,
+      })
+      .from(products)
+      .orderBy(asc(products.sort_order));
 
-  const { data, error } = await client
-    .from('products')
-    .select('id, name, url, description, icon, sort_order')
-    .order('sort_order', { ascending: true });
-
-  if (error) {
+    return NextResponse.json({ data: rows as Product[] });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error';
     return NextResponse.json(
-      { error: `查询产品失败: ${error.message}` },
+      { error: `查询产品失败: ${message}` },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({ data: data as Product[] });
 }

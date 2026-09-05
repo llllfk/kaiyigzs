@@ -1,6 +1,10 @@
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
+import { ensureProjectEnv } from './lib/env';
+
+// Custom server (tsx) does not auto-load .env.local — load before reading env.
+ensureProjectEnv();
 
 const dev = process.env.COZE_PROJECT_ENV !== 'PROD';
 const hostname = process.env.HOSTNAME || 'localhost';
@@ -29,6 +33,16 @@ app.prepare().then(() => {
     console.log(
       `> Server listening at http://${hostname}:${port} as ${
         dev ? 'development' : process.env.COZE_PROJECT_ENV
+      }`,
+    );
+    console.log(
+      `> WECOM_WEBHOOK_URL: ${
+        process.env.WECOM_WEBHOOK_URL?.trim() ? 'configured' : 'MISSING'
+      }`,
+    );
+    console.log(
+      `> DATABASE_URL: ${
+        process.env.DATABASE_URL?.trim() ? 'configured' : 'MISSING'
       }`,
     );
   });

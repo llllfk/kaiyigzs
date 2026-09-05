@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { getDb } from '@/storage/database/db';
+import { contactSubmissions } from '@/storage/database/shared/schema';
 import { notifyWecomContactSubmission } from '@/lib/wecom';
 
 export async function POST(request: NextRequest) {
@@ -14,13 +15,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get client IP
     const forwardedFor = request.headers.get('x-forwarded-for');
     const ip = forwardedFor
       ? forwardedFor.split(',')[0].trim()
       : request.headers.get('x-real-ip') || 'unknown';
 
-    // Try to get IP location
     let ipLocation = '';
     if (ip && ip !== 'unknown') {
       try {
@@ -28,7 +27,11 @@ export async function POST(request: NextRequest) {
           signal: AbortSignal.timeout(3000),
         });
         if (locationRes.ok) {
-          const locationData = await locationRes.json();
+          const locationData = await locationRes.json() as {
+            city?: string;
+            region?: string;
+            country_name?: string;
+          };
           const parts = [
             locationData.city,
             locationData.region,
@@ -41,24 +44,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const client = getSupabaseClient();
-
-    const { error } = await client.from('contact_submissions').insert({
-      name,
-      contact,
-      message,
-      ip,
-      ip_location: ipLocation || null,
-    });
-
-    if (error) {
-      return NextResponse.json(
-        { error: `提交失败: ${error.message}` },
-        { status: 500 }
-      );
-    }
-
-    // Notify WeCom robot (non-blocking for the user-facing result)
     await notifyWecomContactSubmission({
       name: String(name),
       contact: String(contact),
@@ -66,6 +51,19 @@ export async function POST(request: NextRequest) {
       ip,
       ipLocation,
     });
+
+    try {
+      const db = getDb();
+      await db.insert(contactSubmissions).values({
+        name: String(name),
+        contact: String(contact),
+        message: String(message),
+        ip,
+        ip_location: ipLocation || null,
+      });
+    } catch (err) {
+      console.error('[contact] db insert failed:', err);
+    }
 
     return NextResponse.json({ success: true });
   } catch {
