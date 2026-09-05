@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { notifyWecomContactSubmission } from '@/lib/wecom';
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,8 +58,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Notify WeCom robot (non-blocking for the user-facing result)
+    await notifyWecomContactSubmission({
+      name: String(name),
+      contact: String(contact),
+      message: String(message),
+      ip,
+      ipLocation,
+    });
+
     return NextResponse.json({ success: true });
-  } catch (err) {
+  } catch {
     return NextResponse.json(
       { error: '服务器错误' },
       { status: 500 }
