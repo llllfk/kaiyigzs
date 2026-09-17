@@ -40,3 +40,21 @@ export const contactSubmissions = pgTable(
     index("contact_submissions_created_at_idx").on(table.created_at),
   ]
 );
+
+/** WeCom template card click idempotency: one TaskId can be claimed only once. */
+export const wecomTemplateCardEvents = pgTable(
+  "wecom_template_card_events",
+  {
+    task_id: varchar("task_id", { length: 128 }).primaryKey(),
+    event_key: varchar("event_key", { length: 128 }).notNull(),
+    from_user: varchar("from_user", { length: 128 }).notNull(),
+    replace_text: varchar("replace_text", { length: 64 }).notNull(),
+    response_code: varchar("response_code", { length: 256 }),
+    agent_id: integer("agent_id"),
+    status: varchar("status", { length: 32 }).notNull().default("done"),
+    created_at: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("wecom_template_card_events_created_at_idx").on(table.created_at),
+  ]
+);
