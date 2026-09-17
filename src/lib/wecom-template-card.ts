@@ -35,7 +35,8 @@ async function getAccessToken(): Promise<string> {
 }
 
 /**
- * After a button click callback, replace interactive buttons with gray text.
+ * After a button click callback, disable buttons and show custom text.
+ * Uses the minimal "button.replace_name" payload (avoids 41016 missing title).
  * response_code can only be used once within 72 hours.
  */
 export async function updateTemplateCardAfterClick(
@@ -51,9 +52,8 @@ export async function updateTemplateCardAfterClick(
       userids: [input.userId],
       agentid: input.agentId,
       response_code: input.responseCode,
-      template_card: {
-        card_type: 'button_interaction',
-        replace_text: input.replaceText,
+      button: {
+        replace_name: input.replaceText,
       },
     }),
     signal: AbortSignal.timeout(8000),
