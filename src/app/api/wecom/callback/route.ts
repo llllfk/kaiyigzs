@@ -4,11 +4,19 @@ import {
   getWecomCallbackConfig,
   verifyWecomSignature,
 } from '@/lib/wecom-callback-crypto';
+import { updateTemplateCardAfterClick } from '@/lib/wecom-template-card';
+import {
+  alarmButtonLabel,
+  extractXmlTag,
+  parseWecomXmlMessage,
+} from '@/lib/wecom-xml';
 
 /**
- * WeCom self-built app "接收消息" URL verification + future message push.
- * Configure in WeCom as:
- *   https://crm.kaiyigzs.cn/api/wecom/callback
+ * WeCom self-built app callback.
+ * GET  = URL verification
+ * POST = inbound messages / template card button events
+ *
+ * URL: https://www.kaiyigzs.cn/api/wecom/callback
  */
 export async function GET(request: NextRequest) {
   const config = getWecomCallbackConfig();
@@ -34,7 +42,6 @@ export async function GET(request: NextRequest) {
 
   try {
     const plain = decryptWecomEchostr(config, echostr);
-    // WeCom requires raw plaintext body (no JSON quotes)
     return new NextResponse(plain, {
       status: 200,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -45,7 +52,77 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST() {
-  // URL verification only for now; extend later to handle inbound messages.
-  return new NextResponse('ok', { status: 200 });
+export async function POST(request: NextRequest) {
+  const config = getWecomCallbackConfig();
+  if (!config) {
+    console.error('[wecom-callback] env not configured');
+    return new NextResponse('success');
+  }
+
+  const msgSignature = request.nextUrl.searchParams.get('msg_signature') ?? '';
+  const timestamp = request.nextUrl.searchParams.get('timestamp') ?? '';
+  const nonce = request.nextUrl.searchParams.get('nonce') ?? '';
+
+  try {
+    const rawBody = await request.text();
+    const encrypt = extractXmlTag(rawBody, 'Encrypt');
+    if (!encrypt) {
+      console.error('[wecom-callback] missing Encrypt in body');
+      return new NextResponse('success');
+    }
+
+    if (!verifyWecomSignature(config, msgSignature, timestamp, nonce, encrypt)) {
+      console.error('[wecom-callback] invalid signature on POST');
+      return new NextResponse('success');
+    }
+
+    const plainXml = decryptWecomEchostr(config, encrypt);
+    const msg = parseWecomXmlMessage(plainXml);
+
+    console.log('[wecom-callback] inbound', {
+      msgType: msg.msgType,
+      event: msg.event,
+      eventKey: msg.eventKey,
+      taskId: msg.taskId,
+      fromUser: msg.fromUser,
+      cardType: msg.cardType,
+    });
+
+    if (msg.msgType === 'event' && msg.event === 'template_card_event') {
+      const replaceText = alarmButtonLabel(msg.eventKey);
+      const agentId =
+        Number(msg.agentId) ||
+        Number(process.env.WECOM_AGENT_ID || '0') ||
+        0;
+
+      if (msg.responseCode && msg.fromUser && agentId) {
+        try {
+          await updateTemplateCardAfterClick({
+            agentId,
+            responseCode: msg.responseCode,
+            userId: msg.fromUser,
+            replaceText,
+          });
+          console.log('[wecom-callback] card updated', {
+            eventKey: msg.eventKey,
+            replaceText,
+            taskId: msg.taskId,
+          });
+        } catch (err) {
+          console.error('[wecom-callback] update card failed', err);
+        }
+      } else {
+        console.warn('[wecom-callback] skip card update, missing fields', {
+          hasResponseCode: Boolean(msg.responseCode),
+          fromUser: msg.fromUser,
+          agentId,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[wecom-callback] POST handle failed', err);
+  }
+
+  // Always ack quickly so WeCom does not retry endlessly
+  return new NextResponse('success');
 }
