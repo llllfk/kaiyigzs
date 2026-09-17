@@ -6,6 +6,16 @@ import { ensureProjectEnv } from '@/lib/env';
 
 let tableReady = false;
 
+export type TemplateCardTaskRow = {
+  task_id: string;
+  event_key: string;
+  from_user: string;
+  replace_text: string;
+  response_code: string | null;
+  agent_id: number | null;
+  status: string;
+};
+
 function getDatabaseUrl(): string {
   ensureProjectEnv();
   const url = process.env.DATABASE_URL?.trim();
@@ -63,10 +73,21 @@ export type ClaimTemplateCardTaskInput = {
   agentId?: number;
 };
 
-/**
- * First writer for a TaskId wins. Concurrent/duplicate clicks get "duplicate".
- */
-export async function tryClaimTemplateCardTask(
+export async function getTemplateCardTask(
+  taskId: string
+): Promise<TemplateCardTaskRow | null> {
+  await ensureTable();
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(wecomTemplateCardEvents)
+    .where(eq(wecomTemplateCardEvents.task_id, taskId))
+    .limit(1);
+  return (rows[0] as TemplateCardTaskRow | undefined) ?? null;
+}
+
+/** First action click: enter awaiting_confirm. */
+export async function tryBeginConfirm(
   input: ClaimTemplateCardTaskInput
 ): Promise<'claimed' | 'duplicate'> {
   await ensureTable();
@@ -80,7 +101,7 @@ export async function tryClaimTemplateCardTask(
       replace_text: input.replaceText,
       response_code: input.responseCode ?? null,
       agent_id: input.agentId ?? null,
-      status: 'processing',
+      status: 'awaiting_confirm',
     });
     return 'claimed';
   } catch (err) {
@@ -99,7 +120,6 @@ export async function markTemplateCardTaskDone(taskId: string): Promise<void> {
     .where(eq(wecomTemplateCardEvents.task_id, taskId));
 }
 
-/** Allow a later click/retry if WeCom card update failed after claim. */
 export async function releaseTemplateCardTask(taskId: string): Promise<void> {
   const db = getDb();
   await db
